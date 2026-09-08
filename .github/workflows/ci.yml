@@ -68,5 +68,11 @@ jobs:
       - name: Run ESLint
         run: npm run lint
 
+      - name: Test chart calculations
+        run: npm test
+
+      - name: Check frontend formatting
+        run: npm run format:check
+
       - name: Build application
         run: npm run build

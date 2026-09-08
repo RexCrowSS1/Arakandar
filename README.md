@@ -1,14 +1,15 @@
 # Bandar Pasar
 
-Monorepo aplikasi Bandar Pasar dengan frontend Next.js dan backend FastAPI. Proyek
-ini masih berupa fondasi: halaman frontend, konfigurasi runtime, dan endpoint
-liveness sudah berjalan; fitur bisnis belum ditambahkan.
+Monorepo aplikasi Bandar Pasar dengan frontend Next.js dan backend FastAPI.
+Frontend Arakan Ndar menyediakan workspace Market/Technical serta panel analyst
+berdasarkan desain Figma, menggunakan data snapshot dan respons demo lokal.
+Backend saat ini menyediakan endpoint liveness.
 
 ## Struktur
 
 | Folder | Teknologi | Fungsi |
 | --- | --- | --- |
-| [`Frontend`](./Frontend) | Next.js, React, JSX | Antarmuka web dan pemeriksaan status backend |
+| [`Frontend`](./Frontend) | Next.js, React, Tailwind CSS | Workspace market, chart teknikal, dan panel analyst |
 | [`Backend`](./Backend) | FastAPI, Python | API dan endpoint `GET /health` |
 
 ## Persyaratan
@@ -63,6 +64,7 @@ Frontend:
 ```bash
 cd Frontend
 npm run lint
+npm test
 npm run build
 ```
 

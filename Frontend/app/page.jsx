@@ -1,5 +1,5 @@
-import MarketTerminal from "../features/market-terminal/MarketTerminal";
+import FinancialPlatform from "../features/financial-platform/FinancialPlatform";
 
 export default function Home() {
-  return <MarketTerminal />;
+  return <FinancialPlatform />;
 }
