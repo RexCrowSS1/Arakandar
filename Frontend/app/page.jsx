@@ -1,5 +1,5 @@
-import FinancialPlatform from "../features/financial-platform/FinancialPlatform";
+import WebsitePageUI from "../features/website-page-ui/WebsitePageUI";
 
 export default function Home() {
-  return <FinancialPlatform />;
+  return <WebsitePageUI />;
 }

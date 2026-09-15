@@ -1,5 +1,16 @@
 # Arakan Ndar — Frontend
 
+Halaman utama mengintegrasikan **Website Page UI.zip** melalui
+`features/website-page-ui/WebsitePageUI.jsx` dan `data.js`.
+Ticker bergerak kanan ke kiri tanpa putus, berhenti saat hover/fokus, serta memiliki
+kontrol jeda dan kecepatan. Klik quote menyiapkan pertanyaan di panel analyst.
+Preferensi reduced motion menonaktifkan animasi dan menyediakan scroll manual.
+Navigasi mobile memisahkan menu, workspace, dan analyst. Harga serta respons AI
+merupakan demo dari ZIP, bukan koneksi pasar atau layanan AI real-time.
+
+Implementasi sebelumnya tetap tersedia di `features/financial-platform`.
+Detail di bawah mendokumentasikan implementasi sebelumnya.
+
 Implementasi Next.js App Router dari desain **AI Financial Platform UI**.
 Tampilan memakai Tailwind CSS sepenuhnya. Palet, font, dan animasi berada di
 `tailwind.config.mjs`; `app/globals.css` hanya memuat Tailwind dan konfigurasinya.

@@ -1,2 +1,147 @@
 @import "tailwindcss";
 @config "../tailwind.config.mjs";
+
+.market-strip {
+  display: flex;
+  align-items: center;
+  height: 40px;
+  min-width: 0;
+  font-family: var(--font-jetbrains), monospace;
+}
+.market-strip-label {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  gap: 2px;
+  padding: 0 14px;
+  font-size: 9px;
+  letter-spacing: 0.1em;
+}
+.market-strip-label small {
+  font-size: 7px;
+  opacity: 0.7;
+}
+.market-strip-viewport {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.market-strip-track {
+  display: flex;
+  width: max-content;
+  animation: market-scroll 42s linear infinite;
+}
+.market-strip-group {
+  display: flex;
+  flex-shrink: 0;
+}
+.market-strip-quote {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: 9px;
+  height: 40px;
+  padding: 0 18px;
+  white-space: nowrap;
+  border-right: 1px solid;
+  cursor: pointer;
+  font-size: 10px;
+  transition: filter 0.15s;
+}
+.market-strip-quote:hover {
+  filter: brightness(1.35);
+}
+.market-strip-viewport:hover .market-strip-track,
+.market-strip-viewport:focus-within .market-strip-track {
+  animation-play-state: paused;
+}
+.market-strip-controls {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 8px;
+}
+.market-strip-controls button {
+  min-width: 32px;
+  min-height: 32px;
+  cursor: pointer;
+  font-size: 11px;
+  border: 1px solid currentColor;
+  opacity: 0.8;
+}
+.market-strip-controls button:hover {
+  opacity: 1;
+}
+.imported-platform button:focus-visible,
+.imported-platform input:focus-visible,
+.imported-platform textarea:focus-visible {
+  outline: 2px solid #e58a3a;
+  outline-offset: -2px;
+}
+@keyframes market-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .market-strip-track {
+    animation: none;
+  }
+  .market-strip-viewport {
+    overflow-x: auto;
+  }
+  .market-strip-group[aria-hidden="true"] {
+    display: none;
+  }
+}
+@media (max-width: 640px) {
+  .market-strip-label {
+    padding: 0 8px;
+    font-size: 8px;
+  }
+  .market-strip-quote {
+    padding: 0 12px;
+  }
+}
+
+.mobile-platform-nav {
+  display: none;
+}
+@media (max-width: 900px) {
+  .mobile-platform-nav {
+    display: flex;
+    position: relative;
+    z-index: 10;
+    flex-shrink: 0;
+  }
+  .mobile-platform-nav button {
+    flex: 1;
+    padding: 12px 4px;
+    font-family: var(--font-jetbrains);
+    font-size: 10px;
+    cursor: pointer;
+  }
+  .platform-body > aside,
+  .platform-body > .platform-analyst,
+  .platform-body > div[style*="col-resize"] {
+    display: none !important;
+  }
+  .mobile-menu .platform-body > aside {
+    display: flex !important;
+    width: 100% !important;
+  }
+  .mobile-menu .platform-workspace,
+  .mobile-analyst .platform-workspace {
+    display: none;
+  }
+  .mobile-analyst .platform-body > .platform-analyst {
+    display: flex !important;
+    width: 100% !important;
+  }
+  .platform-workspace > div {
+    min-width: 560px;
+  }
+}
