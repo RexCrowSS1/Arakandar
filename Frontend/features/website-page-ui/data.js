@@ -8,6 +8,9 @@ export const TICKERS = [
     change: "+1.24%",
     up: true,
   },
+
+ 
+
   {
     id: "SP500",
     label: "S&P 500",
