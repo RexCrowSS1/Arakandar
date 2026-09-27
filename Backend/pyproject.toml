@@ -16,6 +16,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+inference = [
+    "transformers>=4.45,<5",
+    "torch>=2.4",
+    "accelerate>=1.0",
+]
 dev = [
     "anyio>=4.8",
     "httpx>=0.28",

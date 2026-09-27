@@ -36,3 +36,6 @@ out/
 .vercel/
 coverage/
 *.log
+
+# Downloaded local model weights
+Backend/.cache/
