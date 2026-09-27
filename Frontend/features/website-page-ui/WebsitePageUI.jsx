@@ -1,13 +1,7 @@
 "use client";
 
-import {
-  useState,
-  useRef,
-  useEffect,
-  createContext,
-  useContext,
-  useCallback,
-} from "react";
+import { useState, useRef, useEffect, createContext, useContext } from "react";
+import { buildChatMessages, requestChat } from "./chat-client.mjs";
 import {
   TICKERS,
   HISTORY_ITEMS,
@@ -21,7 +15,6 @@ import {
   MARKET_CHART_DATA,
   CANDLES,
   RSI_PTS,
-  AI_RESPONSES,
 } from "./data";
 const GROTESK = "var(--font-barlow-condensed), sans-serif";
 const MONO = "var(--font-jetbrains), monospace";
@@ -77,18 +70,6 @@ function lineChartPath(pts, W, H, px, py) {
   const area =
     line + ` L${cs.at(-1).x.toFixed(1)},${H - py} L${px},${H - py} Z`;
   return { line, area, last: cs.at(-1) };
-}
-function getAIResponse(text, workspace, ticker) {
-  const key =
-    workspace === "technical"
-      ? "technical"
-      : text.toUpperCase().includes("BBCA") || ticker === "BBCA"
-        ? "BBCA"
-        : text.toUpperCase().includes("IHSG") || ticker === "IHSG"
-          ? "IHSG"
-          : "default";
-  const arr = AI_RESPONSES[key];
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 // ─── LOGO ─────────────────────────────────────────────────────────────────────
 function LogoMark({ size = 24 }) {
@@ -2643,6 +2624,8 @@ function IndicatorMenu({ indicators, onToggle }) {
 function AIPanel({
   messages,
   onSend,
+  isSending,
+  error,
   panelMode,
   setPanelMode,
   aiInput,
@@ -2699,13 +2682,13 @@ function AIPanel({
             <span
               style={{ fontFamily: MONO, fontSize: "8.5px", color: t.textMut }}
             >
-              AI ANALYST · DEMO
+              AI ANALYST · ARAKANDAR
             </span>
             <div
               style={{ width: "5px", height: "5px", backgroundColor: t.pos }}
             />
             <span style={{ fontFamily: MONO, fontSize: "8.5px", color: t.pos }}>
-              LIVE
+              LOCAL
             </span>
           </div>
         </div>
@@ -2865,6 +2848,14 @@ function AIPanel({
 
       {/* Input */}
       <div className="flex-shrink-0 px-3 pb-3">
+        {error && (
+          <p
+            role="alert"
+            style={{ color: t.neg, fontSize: "11px", marginBottom: "8px" }}
+          >
+            {error}
+          </p>
+        )}
         <div
           style={{
             borderTop: `${focused ? 2 : 1}px solid ${focused ? t.orange : t.border}`,
@@ -2886,12 +2877,19 @@ function AIPanel({
               ›
             </span>
             <input
+              aria-label="Pesan untuk Arakandar"
+              maxLength={8000}
               value={aiInput}
               onChange={(e) => setAiInput(e.target.value)}
               onFocus={() => setFocused(true)}
               onBlur={() => setFocused(false)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && aiInput.trim()) {
+                if (
+                  e.key === "Enter" &&
+                  !e.nativeEvent.isComposing &&
+                  aiInput.trim() &&
+                  !isSending
+                ) {
                   onSend(aiInput);
                 }
               }}
@@ -2922,6 +2920,7 @@ function AIPanel({
             </button>
             <Div v style={{ height: "10px", margin: "0 2px" }} />
             <button
+              disabled={isSending || !hasText}
               onClick={() => {
                 if (aiInput.trim()) onSend(aiInput);
               }}
@@ -2940,7 +2939,7 @@ function AIPanel({
                 borderLeft: `1px solid ${hasText ? t.orange : t.border}`,
               }}
             >
-              <Ico.Send /> SEND
+              <Ico.Send /> {isSending ? "WAIT..." : "SEND"}
             </button>
           </div>
         </div>
@@ -2978,6 +2977,9 @@ export default function App() {
   const [activeHistId, setActiveHistId] = useState("h2");
   const [messages, setMessages] = useState([]);
   const messageSequence = useRef(0);
+  const pendingChat = useRef(null);
+  const [isSending, setIsSending] = useState(false);
+  const [chatError, setChatError] = useState("");
   const [aiInput, setAiInput] = useState("");
   const [aiPanelMode, setAIPanelMode] = useState("normal");
   const [aiWidth, setAiWidth] = useState(310);
@@ -2989,29 +2991,59 @@ export default function App() {
     window.addEventListener("toggleMode", handler);
     return () => window.removeEventListener("toggleMode", handler);
   }, []);
-  const sendMessage = useCallback(
-    (text) => {
-      if (!text.trim()) return;
-      const responseId = ++messageSequence.current;
-      setMessages((prev) => [
-        ...prev,
-        { role: "user", text },
-        { role: "ai", text: "", analyzing: true, id: responseId },
-      ]);
-      setAiInput("");
-      setTimeout(() => {
-        const response = getAIResponse(text, workspace, activeTicker);
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === responseId
-              ? { role: "ai", text: response, id: responseId }
-              : m,
-          ),
-        );
-      }, 1500);
-    },
-    [workspace, activeTicker],
-  );
+  useEffect(() => () => pendingChat.current?.abort(), []);
+  const sendMessage = async (text) => {
+    const question = text.trim();
+    if (!question || pendingChat.current) return;
+    const controller = new AbortController();
+    pendingChat.current = controller;
+    const responseId = ++messageSequence.current;
+    setChatError("");
+    setIsSending(true);
+    setMessages((prev) => [
+      ...prev,
+      { role: "user", text: question, id: `user-${responseId}` },
+      { role: "ai", text: "", analyzing: true, id: responseId },
+    ]);
+    setAiInput("");
+    try {
+      const reply = await requestChat(
+        {
+          messages: buildChatMessages(messages, question),
+          context: {
+            workspace,
+            ticker: workspace === "technical" ? "BBCA" : activeTicker,
+            indicators: workspace === "technical" ? [...indicators] : [],
+          },
+        },
+        controller.signal,
+      );
+      if (pendingChat.current !== controller) return;
+      setMessages((prev) =>
+        prev.map((message) =>
+          message.id === responseId
+            ? { role: "ai", text: reply, id: responseId }
+            : message,
+        ),
+      );
+    } catch (error) {
+      if (pendingChat.current !== controller || controller.signal.aborted)
+        return;
+      setChatError(error.message || "Model gagal menjawab. Silakan coba lagi.");
+      setMessages((prev) =>
+        prev.filter(
+          (message) =>
+            message.id !== responseId && message.id !== `user-${responseId}`,
+        ),
+      );
+      setAiInput((current) => current || question);
+    } finally {
+      if (pendingChat.current === controller) {
+        pendingChat.current = null;
+        setIsSending(false);
+      }
+    }
+  };
   const handleTickerClick = (id) => {
     setActiveTicker(id);
     setMobilePanel("analyst");
@@ -3154,6 +3186,10 @@ export default function App() {
             collapsed={sidebarCollapsed}
             setCollapsed={setSidebarCollapsed}
             onNewConv={() => {
+              pendingChat.current?.abort();
+              pendingChat.current = null;
+              setIsSending(false);
+              setChatError("");
               setMessages([]);
               setAiInput("");
               setWorkspace("market");
@@ -3194,10 +3230,11 @@ export default function App() {
           {/* AI PANEL */}
           {showAI && (
             <div
-              className="platform-analyst"
+              className="platform-analyst min-w-0"
               style={{
-                width:
-                  aiPanelMode === "fullscreen" ? "100%" : `${aiPanelWidth}px`,
+                width: aiPanelWidth,
+                flexGrow: aiPanelMode === "fullscreen" ? 1 : 0,
+                flexBasis: aiPanelMode === "fullscreen" ? 0 : "auto",
                 flexShrink: 0,
                 borderLeft: `1px solid ${t.border}`,
                 display: "flex",
@@ -3208,6 +3245,8 @@ export default function App() {
               <AIPanel
                 messages={messages}
                 onSend={sendMessage}
+                isSending={isSending}
+                error={chatError}
                 panelMode={aiPanelMode}
                 setPanelMode={changePanelMode}
                 aiInput={aiInput}

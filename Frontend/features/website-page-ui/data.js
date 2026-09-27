@@ -9,8 +9,6 @@ export const TICKERS = [
     up: true,
   },
 
- 
-
   {
     id: "SP500",
     label: "S&P 500",

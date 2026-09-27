@@ -5,8 +5,14 @@ Halaman utama mengintegrasikan **Website Page UI.zip** melalui
 Ticker bergerak kanan ke kiri tanpa putus, berhenti saat hover/fokus, serta memiliki
 kontrol jeda dan kecepatan. Klik quote menyiapkan pertanyaan di panel analyst.
 Preferensi reduced motion menonaktifkan animasi dan menyediakan scroll manual.
-Navigasi mobile memisahkan menu, workspace, dan analyst. Harga serta respons AI
-merupakan demo dari ZIP, bukan koneksi pasar atau layanan AI real-time.
+Navigasi mobile memisahkan menu, workspace, dan analyst. Harga masih snapshot demo.
+Chat halaman utama menggunakan model Arakandar lokal melalui `POST /api/chat`,
+yang meneruskan percakapan ke `POST /chat` pada backend FastAPI. Atur
+`API_URL=http://127.0.0.1:8000` di `.env.local` dan jalankan backend dengan dependensi
+`inference` sesuai [panduan backend](../Backend/README.md#model-arakandar-lokal).
+Model yang belum siap atau gagal merespons ditampilkan sebagai error, tanpa
+menggantinya dengan respons demo. Riwayat dan draft bertahan saat panel diperbesar
+atau ditutup, dan dihapus saat membuat percakapan baru atau memuat ulang halaman.
 
 Implementasi sebelumnya tetap tersedia di `features/financial-platform`.
 Detail di bawah mendokumentasikan implementasi sebelumnya.
@@ -52,7 +58,9 @@ npm ci
 npm run dev
 ```
 
-Buka `http://localhost:3000`. Tidak diperlukan backend atau kunci API untuk preview.
+Buka `http://localhost:3000`. Preview market tetap bisa dibuka tanpa backend;
+chat membutuhkan backend lokal dan bobot Arakandar. Kunci API tidak diperlukan
+untuk repo model publik ini.
 
 ## Fitur dan batas data
 
