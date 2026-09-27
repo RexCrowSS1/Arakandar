@@ -12,6 +12,7 @@ from app.ai import LocalChatModel
 from app.api.chat import router as chat_router
 from app.api.health import router as health_router
 from app.config import Settings, get_settings
+from app.api.market import router as market_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -49,5 +50,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     application.include_router(health_router)
     application.include_router(chat_router)
+    application.include_router(market_router)
 
     return application
