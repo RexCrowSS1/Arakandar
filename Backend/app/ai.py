@@ -103,7 +103,7 @@ class LocalChatModel:
                 output = self.model.generate(
                     **inputs,
                     max_new_tokens=self.settings.ai_max_new_tokens,
-                    max_time=120,
+                    max_time=180,
                     do_sample=False,
                     pad_token_id=self.tokenizer.pad_token_id or self.tokenizer.eos_token_id,
                 )
