@@ -31,7 +31,7 @@ def get_symbol_id(pair: str, category: str | None = "crypto") -> str:
     symbol = data.get("symbol", "")
     return f"{broker.upper()}:{symbol.upper()}"
 
-def fetch_single_quote(pair: str, category: str = "crypto", timeout: float = 5.0) -> dict:
+def fetch_single_quote(pair: str, category: str = "all", timeout: float = 5.0) -> dict:
     """Fetch the latest price snapshot for a given pair."""
     symbol_id = get_symbol_id(pair, category)
     session = "qs_" + "".join(random.choices(string.ascii_lowercase, k=12))
