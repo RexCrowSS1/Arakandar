@@ -56,6 +56,7 @@ INTERVALS = {
     "1D": ("1y", "1d"),
     "1W": ("5y", "1wk"),
     "1MTH": ("max", "1mo"),
+    "1Y": ("max", "1mo"),
 }
 
 
@@ -122,6 +123,33 @@ def four_hour_bars(bars: list[dict], timezone: str) -> list[dict]:
                 else None
             )
     return list(result.values())
+
+
+def calendar_bars(bars: list[dict], timezone: str, interval: str) -> list[dict]:
+    """Merge calendar periods, including Yahoo's separate latest-session bar."""
+    periods = {}
+    zone = ZoneInfo(timezone)
+    for bar in bars:
+        local = datetime.fromisoformat(bar["time"]).astimezone(zone)
+        if interval == "1wk":
+            key = local.isocalendar()[:2]
+        elif interval == "1mo":
+            key = (local.year, local.month)
+        else:
+            key = local.year
+        if key not in periods:
+            periods[key] = dict(bar)
+            continue
+        row = periods[key]
+        row.update(
+            high=max(row["high"], bar["high"]), low=min(row["low"], bar["low"]), close=bar["close"]
+        )
+        row["volume"] = (
+            row["volume"] + bar["volume"]
+            if row["volume"] is not None and bar["volume"] is not None
+            else None
+        )
+    return list(periods.values())
 
 
 def indicator_values(bars: list[dict], timezone: str, intraday: bool) -> dict:
@@ -302,6 +330,10 @@ class MarketData:
             zone = result["meta"].get("exchangeTimezoneName", "UTC")
             if mode == "technical" and timeframe == "4H":
                 bars = four_hour_bars(bars, zone)
+            elif mode == "technical" and timeframe == "1Y":
+                bars = calendar_bars(bars, zone, "1y")
+            elif interval in ("1wk", "1mo"):
+                bars = calendar_bars(bars, zone, interval)
             if not bars:
                 raise ValueError("No OHLCV available")
             return {
@@ -312,7 +344,9 @@ class MarketData:
                 "bars": bars[-1500:],
                 "timezone": zone,
                 "provider": "Yahoo Finance",
-                "interval": "4h" if mode == "technical" and timeframe == "4H" else interval,
+                "interval": {"4H": "4h", "1Y": "1y"}.get(timeframe, interval)
+                if mode == "technical"
+                else interval,
                 "fetched_at": datetime.now(UTC).isoformat(),
                 "as_of": bars[-1]["time"],
             }

@@ -1,6 +1,157 @@
 @import "tailwindcss";
 @config "../tailwind.config.mjs";
 
+.imported-platform .chat-user-message,
+.imported-platform .chat-user-message-content {
+  clip-path: polygon(
+    var(--chat-corner) 0,
+    calc(100% - var(--chat-corner)) 0,
+    100% var(--chat-corner),
+    100% calc(100% - var(--chat-corner)),
+    calc(100% - var(--chat-corner)) 100%,
+    var(--chat-corner) 100%,
+    0 calc(100% - var(--chat-corner)),
+    0 var(--chat-corner)
+  );
+}
+.imported-platform .chat-user-message {
+  --chat-corner: 10px;
+  width: fit-content;
+  min-width: min(140px, calc(100% - 12px));
+  max-width: calc(100% - 12px);
+  margin-inline-start: auto;
+  padding: 1px;
+  background: var(--chat-bubble-border);
+}
+.imported-platform .chat-user-message-content {
+  --chat-corner: 9px;
+  padding: 12px 14px;
+  background:
+    linear-gradient(135deg, var(--chat-bubble-tint), transparent 80%),
+    var(--chat-bubble-bg);
+}
+
+.imported-platform .chat-markdown {
+  min-width: 0;
+  line-height: 1.75;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.chat-markdown :where(p, ul, ol, blockquote, pre, hr, .chat-markdown-table) {
+  margin-block: 0 0.9em;
+}
+.chat-markdown :where(h1, h2, h3, h4, h5, h6) {
+  margin-block: 1.4em 0.55em;
+  font-weight: 700;
+  line-height: 1.5;
+}
+.chat-markdown h1 {
+  font-size: 1.45em;
+}
+.chat-markdown h2 {
+  font-size: 1.3em;
+}
+.chat-markdown h3 {
+  font-size: 1.15em;
+}
+.chat-markdown :where(h4, h5, h6) {
+  font-size: 1em;
+}
+.chat-markdown > :first-child {
+  margin-block-start: 0;
+}
+.chat-markdown > :last-child,
+.chat-markdown :where(li, blockquote) > :last-child {
+  margin-block-end: 0;
+}
+.chat-markdown strong {
+  font-weight: 700;
+}
+.chat-markdown em {
+  font-style: italic;
+}
+.chat-markdown :where(ul, ol) {
+  padding-inline-start: 1.65em;
+}
+.chat-markdown ul {
+  list-style: disc;
+}
+.chat-markdown ol {
+  list-style: decimal;
+}
+.chat-markdown li {
+  margin-block: 0.35em;
+}
+.chat-markdown li::marker {
+  color: var(--markdown-accent);
+}
+.chat-markdown li > :where(ul, ol) {
+  margin-block: 0.35em 0;
+}
+.chat-markdown blockquote {
+  padding-inline-start: 1em;
+  border-inline-start: 2px solid var(--markdown-accent);
+}
+.chat-markdown a {
+  color: var(--markdown-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.chat-markdown :where(a, .chat-markdown-table):focus-visible {
+  outline: 1px solid var(--markdown-accent);
+  outline-offset: 2px;
+}
+.chat-markdown code {
+  font-family: inherit;
+  font-size: 0.95em;
+  padding: 1px 4px;
+  background: var(--markdown-surface);
+}
+.chat-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  padding: 10px 12px;
+  background: var(--markdown-surface);
+  border: 1px solid var(--markdown-border);
+}
+.chat-markdown pre code {
+  display: block;
+  padding: 0;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+.chat-markdown hr {
+  border: 0;
+  border-block-start: 1px solid var(--markdown-border);
+}
+.chat-markdown-table {
+  max-width: 100%;
+  overflow-x: auto;
+}
+.chat-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.chat-markdown :where(th, td) {
+  min-width: 80px;
+  padding: 6px 8px;
+  border: 1px solid var(--markdown-border);
+  text-align: start;
+  vertical-align: top;
+}
+.chat-markdown th {
+  font-weight: 700;
+  background: var(--markdown-surface);
+}
+.chat-markdown .contains-task-list {
+  padding-inline-start: 0;
+  list-style: none;
+}
+.chat-markdown .task-list-item > input {
+  margin-inline-end: 6px;
+  accent-color: var(--markdown-accent);
+}
+
 .market-strip {
   display: flex;
   align-items: center;
@@ -109,6 +260,74 @@
 
 .mobile-platform-nav {
   display: none;
+}
+.technical-chart-controls {
+  flex-wrap: wrap;
+}
+.technical-chart-controls > .flex {
+  flex-wrap: wrap;
+}
+.chart-navigation {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: auto;
+  flex-wrap: wrap;
+}
+.chart-navigation button {
+  font-family: var(--font-jetbrains), monospace;
+  font-size: 9px;
+  letter-spacing: 0.04em;
+  padding: 4px 8px;
+  border: 1px solid var(--chart-border);
+  color: var(--chart-text);
+  background: transparent;
+  cursor: pointer;
+}
+.chart-navigation button:hover,
+.chart-navigation button[aria-pressed="true"] {
+  color: var(--chart-accent);
+  border-color: var(--chart-accent);
+  background: var(--chart-active);
+}
+.chart-navigation button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+.technical-candle-chart:focus-visible {
+  outline: 1px solid var(--chart-accent);
+  outline-offset: -1px;
+}
+.technical-chart-frame.is-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  width: 100%;
+  height: 100dvh;
+  padding: 16px;
+  overflow: auto;
+  background: var(--chart-bg);
+}
+.technical-chart-frame::backdrop {
+  background: var(--chart-bg);
+}
+.technical-chart-frame.is-fullscreen .technical-chart-body {
+  flex: 1;
+  min-height: 220px;
+}
+.technical-chart-frame.is-fullscreen .technical-chart-content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.technical-chart-frame.is-fullscreen .technical-candle-chart {
+  flex: 1;
+  min-height: 160px;
+  height: 100%;
 }
 @media (max-width: 900px) {
   .mobile-platform-nav {

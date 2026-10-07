@@ -5,11 +5,30 @@ import {
   useRef,
   useEffect,
   useMemo,
+  useCallback,
+  useId,
   createContext,
   useContext,
 } from "react";
 import { useConversations } from "./use-conversations";
+import { MessageMarkdown } from "./message-markdown.mjs";
 import { useMarketResource } from "./use-market.mjs";
+import { useChartFullscreen } from "./use-chart-fullscreen.mjs";
+import {
+  TIMEFRAMES,
+  MIN_SPAN,
+  MAX_SPAN,
+  clamp,
+  defaultRange,
+  latestTime,
+  clampToLatest,
+  zoomRange,
+  panRange,
+  timeframeForSpan,
+  visibleData,
+  chartGeometry,
+  timeTicks,
+} from "./chart-viewport.mjs";
 import {
   TICKER_CATALOG,
   SECTOR_CATALOG,
@@ -1236,24 +1255,32 @@ function CandleChart({
   annotations,
   pendingAnnotation,
   drawTool,
-  onMouseDown,
-  onMouseMove,
-  onMouseUp,
+  svgRef,
+  range,
+  geometry,
+  visible,
+  pointerHandlers,
+  onKeyDown,
 }) {
-  const { t, chart, indicators, series } = useApp();
-  const bars = (chart.bars || []).slice(-120);
+  const { t, chart, indicators, technicalTicker } = useApp();
+  const clipId = useId().replace(/:/g, "");
+  const { bars, series } = visible;
   const candles = bars.map((bar) => [bar.open, bar.high, bar.low, bar.close]);
-  const oscillators = ["RSI", "MACD", "STOCHASTIC"].filter((name) =>
-    indicators.has(name),
-  );
-  // Keep the original SVG height while fitting the selected indicator panels inside it.
-  const totalH = indicators.has("RSI") ? 279 : 260;
-  const panelH = oscillators.length === 1 ? 79 : 60;
-  const W = 860,
-    mainH = totalH - oscillators.length * panelH,
-    rsiH = panelH - 14,
-    PX = 50,
-    PY = 12;
+  const {
+    width: W,
+    px: PX,
+    py: PY,
+    mainH,
+    height: totalH,
+    panelH,
+    oscillators,
+    min: mn,
+    max: mx,
+    toY,
+    bodyW,
+  } = geometry;
+  const rsiH = panelH - 18;
+  const toX = (i) => geometry.toX(Date.parse(bars[i].time));
   const overlays = [
     ...(indicators.has("MA") ? [["MA20", series.MA, t.orange]] : []),
     ...(indicators.has("EMA") ? [["EMA20", series.EMA, t.pos]] : []),
@@ -1265,21 +1292,20 @@ function CandleChart({
       : []),
     ...(indicators.has("VWAP") ? [["VWAP", series.VWAP, t.neg]] : []),
   ];
-  const prices = [
-    ...candles.flatMap((c) => [c[1], c[2]]),
-    ...overlays.flatMap(([, values]) => values.slice(-120)),
-  ];
-  const { min: mn, max: mx } = priceDomain(prices);
-  const toY = (p) => PY + ((mx - p) / (mx - mn)) * (mainH - PY * 2);
-  const cW = (W - PX * 2) / Math.max(1, candles.length),
-    bodyW = cW * 0.55;
-  const toX = (i) => PX + (i + 0.5) * cW;
   const ylabels = bars.length
     ? [0.2, 0.5, 0.8].map((f) => mn + f * (mx - mn))
     : [];
   const maxVolume = Math.max(1, ...bars.map((bar) => bar.volume || 0));
-  const cursor = drawTool === "cursor" ? "default" : "crosshair";
+  const cursor = drawTool === "cursor" ? "grab" : "crosshair";
   const renderAnnotation = (ann, opacity = 1) => {
+    if (ann.ticker !== technicalTicker) return null;
+    ann = {
+      ...ann,
+      x1: geometry.toX(ann.time1),
+      x2: geometry.toX(ann.time2),
+      y1: toY(ann.price1),
+      y2: toY(ann.price2),
+    };
     const col =
       ann.type === "support"
         ? t.pos
@@ -1442,7 +1468,7 @@ function CandleChart({
               textAnchor="middle"
               opacity={opacity}
             >
-              {Math.abs(ann.x2 - ann.x1).toFixed(0)}px
+              {pct(((ann.price2 - ann.price1) / ann.price1) * 100)}
             </text>
           </g>
         );
@@ -1455,11 +1481,23 @@ function CandleChart({
       width="100%"
       viewBox={`0 0 ${W} ${totalH}`}
       preserveAspectRatio="none"
-      style={{ display: "block", cursor }}
-      onMouseDown={onMouseDown}
-      onMouseMove={onMouseMove}
-      onMouseUp={onMouseUp}
+      ref={svgRef}
+      className="technical-candle-chart"
+      data-from={range?.from}
+      data-to={range?.to}
+      data-bars={bars.length}
+      role="application"
+      aria-label="Grafik teknikal interaktif: scroll atau pinch untuk zoom, seret untuk geser, tombol plus/minus untuk zoom, Home untuk reset"
+      tabIndex={0}
+      style={{ display: "block", cursor, touchAction: "none" }}
+      {...pointerHandlers}
+      onKeyDown={onKeyDown}
     >
+      <defs>
+        <clipPath id={clipId}>
+          <rect x={PX} y={PY} width={W - PX * 2} height={mainH - PY * 2 - 14} />
+        </clipPath>
+      </defs>
       {ylabels.map((v) => (
         <g key={v}>
           <line
@@ -1484,58 +1522,60 @@ function CandleChart({
           </text>
         </g>
       ))}
-      {candles.map(([o, h, l, c], i) => {
-        const bull = c >= o,
-          color = bull ? t.pos : t.neg;
-        const cx = PX + (i + 0.5) * cW;
-        const bTop = toY(Math.max(o, c)),
-          bBot = toY(Math.min(o, c));
-        return (
-          <g key={i}>
-            <line
-              x1={cx}
-              x2={cx}
-              y1={toY(h)}
-              y2={toY(l)}
-              stroke={color}
-              strokeWidth="1"
-            />
-            <rect
-              x={cx - bodyW / 2}
-              y={bTop}
-              width={bodyW}
-              height={Math.max(bBot - bTop, 1)}
-              fill={color}
-              opacity="0.85"
-            />
-          </g>
-        );
-      })}
-      {overlays.map(([name, values, color]) => (
-        <path
-          key={name}
-          d={linePath(values.slice(-120), toX, toY)}
-          stroke={color}
-          strokeWidth="1.2"
-          fill="none"
-        >
-          <title>{name}</title>
-        </path>
-      ))}
-      {indicators.has("VOLUME") &&
-        bars.map((bar, i) => (
-          <rect
-            key={bar.time}
-            x={toX(i) - bodyW / 2}
-            y={mainH - PY - ((bar.volume || 0) / maxVolume) * 30}
-            width={bodyW}
-            height={((bar.volume || 0) / maxVolume) * 30}
-            fill={bar.close >= bar.open ? t.pos : t.neg}
-            opacity="0.25"
+      <g clipPath={`url(#${clipId})`}>
+        {candles.map(([o, h, l, c], i) => {
+          const bull = c >= o,
+            color = bull ? t.pos : t.neg;
+          const cx = toX(i);
+          const bTop = toY(Math.max(o, c)),
+            bBot = toY(Math.min(o, c));
+          return (
+            <g key={i}>
+              <line
+                x1={cx}
+                x2={cx}
+                y1={toY(h)}
+                y2={toY(l)}
+                stroke={color}
+                strokeWidth="1"
+              />
+              <rect
+                x={cx - bodyW / 2}
+                y={bTop}
+                width={bodyW}
+                height={Math.max(bBot - bTop, 1)}
+                fill={color}
+                opacity="0.85"
+              />
+            </g>
+          );
+        })}
+        {overlays.map(([name, values, color]) => (
+          <path
+            key={name}
+            d={linePath(values, toX, toY)}
+            stroke={color}
+            strokeWidth="1.2"
+            fill="none"
           >
-            <title>Volume: {fmt(bar.volume, 0)}</title>
-          </rect>
+            <title>{name}</title>
+          </path>
         ))}
+        {indicators.has("VOLUME") &&
+          bars.map((bar, i) => (
+            <rect
+              key={bar.time}
+              x={toX(i) - bodyW / 2}
+              y={mainH - PY - 14 - ((bar.volume || 0) / maxVolume) * 30}
+              width={bodyW}
+              height={((bar.volume || 0) / maxVolume) * 30}
+              fill={bar.close >= bar.open ? t.pos : t.neg}
+              opacity="0.25"
+            >
+              <title>Volume: {fmt(bar.volume, 0)}</title>
+            </rect>
+          ))}
+      </g>
       {!bars.length && (
         <text
           x={W / 2}
@@ -1545,7 +1585,9 @@ function CandleChart({
           fontSize="11"
           fontFamily={MONO}
         >
-          {feedLabel(chart)}
+          {chart.bars?.length
+            ? "Data tidak tersedia untuk rentang ini · gunakan Reset"
+            : feedLabel(chart)}
         </text>
       )}
       {bars.length > 0 && (
@@ -1560,37 +1602,32 @@ function CandleChart({
             : ""}
         </text>
       )}
-      {axisLabels(
-        bars,
-        chart.timezone,
-        ["1m", "5m", "15m", "30m", "60m", "4h"].includes(chart.interval),
-        5,
-      ).map((lbl, i) => (
+      {timeTicks(range, chart.timezone).map(({ time, label }, i) => (
         <text
-          key={i}
-          x={PX + (i / 4) * (W - PX * 2)}
-          y={mainH - 2}
-          textAnchor="middle"
-          fill={t.textMut}
-          fontSize="8.5"
+          key={time}
+          x={geometry.toX(time)}
+          y={mainH - 3}
+          textAnchor={i === 0 ? "start" : i === 4 ? "end" : "middle"}
+          fill={t.textSec}
+          fontSize="9"
           fontFamily={MONO}
         >
-          {lbl}
+          {label}
         </text>
       ))}
       {/* Annotations */}
-      {annotations.map((ann) => renderAnnotation(ann))}
-      {pendingAnnotation && renderAnnotation(pendingAnnotation, 0.5)}
+      <g clipPath={`url(#${clipId})`}>
+        {annotations.map((ann) => renderAnnotation(ann))}
+        {pendingAnnotation && renderAnnotation(pendingAnnotation, 0.5)}
+      </g>
       {oscillators.map((name, index) => {
-        const values = (
-          name === "MACD" ? series.MACD.line : series[name]
-        ).slice(-120);
-        const signal = name === "MACD" ? series.MACD.signal.slice(-120) : [];
+        const values = name === "MACD" ? series.MACD.line : series[name];
+        const signal = name === "MACD" ? series.MACD.signal : [];
         const domain =
           name === "MACD"
             ? priceDomain([...values, ...signal, 0])
             : { min: 0, max: 100 };
-        const top = mainH + index * (rsiH + 14) + 14;
+        const top = mainH + index * panelH + 18;
         const toOscY = (v) =>
           top +
           PY / 2 +
@@ -1598,7 +1635,12 @@ function CandleChart({
         const thresholds =
           name === "MACD" ? [0] : name === "RSI" ? [30, 70] : [20, 80];
         return (
-          <g key={name}>
+          <g
+            key={name}
+            data-indicator={name}
+            data-min={domain.min}
+            data-max={domain.max}
+          >
             <line
               x1={PX}
               x2={W - PX}
@@ -1619,6 +1661,21 @@ function CandleChart({
               {name === "MACD" ? ` · Signal ${fmt(signal.at(-1))}` : ""}
             </text>
             {thresholds.map((v) => (
+              <line
+                key={v}
+                x1={PX}
+                x2={W - PX}
+                y1={toOscY(v)}
+                y2={toOscY(v)}
+                stroke={t.orange}
+                strokeDasharray="3,4"
+                strokeOpacity="0.65"
+              />
+            ))}
+            {(name === "MACD"
+              ? [domain.min, 0, domain.max]
+              : [0, 25, 50, 75, 100]
+            ).map((v) => (
               <g key={v}>
                 <line
                   x1={PX}
@@ -1635,7 +1692,7 @@ function CandleChart({
                   fontSize="7.5"
                   fontFamily={MONO}
                 >
-                  {v}
+                  {name === "MACD" ? fmt(v) : v}
                 </text>
               </g>
             ))}
@@ -2349,15 +2406,90 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
     indicators,
     setIndicators,
     chart,
+    series,
   } = useApp();
   const [tickerOpen, setTickerOpen] = useState(false);
-  const lastBar = chart.bars?.at(-1);
   const [drawTool, setDrawTool] = useState("cursor");
   const [annotations, setAnnotations] = useState([]);
   const [pending, setPending] = useState(null);
-  const [drawStart, setDrawStart] = useState(null);
   const [notes, setNotes] = useState("");
-  const VW = 860;
+  const frameRef = useRef(null);
+  const svgRef = useRef(null);
+  const pointers = useRef(new Map());
+  const gesture = useRef(null);
+  const { expanded, toggle: toggleFullscreen } = useChartFullscreen(frameRef);
+  const [view, setView] = useState(null);
+  const viewKey = `${ticker}:${tf}`;
+  const latest =
+    latestTime(chart.bars || [], chart.quote?.as_of) ??
+    (view?.key === viewKey ? view.latest : null);
+  const storedView = view?.key === viewKey ? view : null;
+  const range = useMemo(
+    () =>
+      storedView
+        ? storedView.followLatest && latest
+          ? {
+              from: latest - (storedView.range.to - storedView.range.from),
+              to: latest,
+            }
+          : storedView.range
+        : defaultRange(chart.bars || [], tf, chart.quote?.as_of),
+    [storedView, latest, chart.bars, chart.quote?.as_of, tf],
+  );
+  const visible = useMemo(
+    () => visibleData(chart.bars || [], series, range),
+    [chart.bars, series, range],
+  );
+  const geometry = useMemo(
+    () => chartGeometry(visible.bars, visible.series, indicators, range, tf),
+    [visible, indicators, range, tf],
+  );
+  const lastBar = visible.bars.at(-1);
+  const span = range ? range.to - range.from : 0;
+  const applyRange = useCallback(
+    (next, automatic = true) => {
+      if (!next) return;
+      next = clampToLatest(next, latest);
+      const nextTf = automatic ? timeframeForSpan(next.to - next.from) : tf;
+      setView({
+        key: `${ticker}:${nextTf}`,
+        range: next,
+        latest,
+        followLatest: latest !== null && next.to >= latest - 1,
+      });
+      if (nextTf !== tf) setTf(nextTf);
+      setPending(null);
+    },
+    [ticker, tf, setTf, latest],
+  );
+  const zoom = (factor, anchor = 1) =>
+    applyRange(zoomRange(range, factor, anchor));
+  const resetView = () => {
+    setView(null);
+    setPending(null);
+  };
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const wheel = (event) => {
+      if (!range) return;
+      event.preventDefault();
+      const rect = svg.getBoundingClientRect();
+      const x = ((event.clientX - rect.left) / rect.width) * geometry.width;
+      const delta =
+        event.deltaY *
+        (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? rect.height : 1);
+      applyRange(
+        zoomRange(
+          range,
+          Math.exp(clamp(delta, -120, 120) * 0.003),
+          (x - geometry.px) / (geometry.width - geometry.px * 2),
+        ),
+      );
+    };
+    svg.addEventListener("wheel", wheel, { passive: false });
+    return () => svg.removeEventListener("wheel", wheel);
+  }, [range, geometry, applyRange]);
   const togInd = (k) => {
     setIndicators((prev) => {
       const n = new Set(prev);
@@ -2366,75 +2498,131 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
     });
     setAiQ(`Analyze ${ticker} with ${k} indicator`);
   };
-  const svgCoords = (e) => {
-    const rect = e.currentTarget.getBoundingClientRect();
+  const svgCoords = (event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
     return {
-      x: ((e.clientX - rect.left) / rect.width) * VW,
-      y:
-        ((e.clientY - rect.top) / rect.height) *
-        e.currentTarget.viewBox.baseVal.height,
+      x: ((event.clientX - rect.left) / rect.width) * geometry.width,
+      y: ((event.clientY - rect.top) / rect.height) * geometry.height,
     };
   };
-  const onMouseDown = (e) => {
-    if (drawTool === "cursor") return;
-    const p = svgCoords(e);
-    setDrawStart(p);
-    if (
-      drawTool === "horizontal" ||
-      drawTool === "support" ||
-      drawTool === "resistance"
+  const makeAnnotation = (type, from, to) => ({
+    id: "pending",
+    type,
+    ticker,
+    time1: geometry.fromX(from.x),
+    price1: geometry.fromY(from.y),
+    time2: geometry.fromX(to.x),
+    price2: geometry.fromY(to.y),
+  });
+  const startPinch = () => {
+    const [a, b] = [...pointers.current.values()];
+    gesture.current = {
+      type: "pinch",
+      range,
+      distance: Math.max(1, Math.hypot(a.x - b.x, a.y - b.y)),
+      anchor: clamp(
+        ((a.x + b.x) / 2 - geometry.px) / (geometry.width - geometry.px * 2),
+        0,
+        1,
+      ),
+    };
+    setPending(null);
+  };
+  const onPointerDown = (event) => {
+    if (!range || (event.button != null && event.button !== 0)) return;
+    event.currentTarget.focus?.();
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+    const point = svgCoords(event);
+    pointers.current.set(event.pointerId, point);
+    if (pointers.current.size === 2) {
+      startPinch();
+      return;
+    }
+    if (drawTool === "cursor") gesture.current = { type: "pan", point, range };
+    else if (
+      point.y >= geometry.py &&
+      point.y <= geometry.mainH - geometry.py - 14 &&
+      visible.bars.length
     ) {
-      setAnnotations((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          type: drawTool,
-          x1: 0,
-          y1: p.y,
-          x2: VW,
-          y2: p.y,
-        },
-      ]);
-    } else if (drawTool === "text") {
-      setAnnotations((prev) => [
-        ...prev,
-        {
-          id: Date.now().toString(),
-          type: "text",
-          x1: p.x,
-          y1: p.y,
-          x2: p.x,
-          y2: p.y,
-          label: "Analysis note",
-        },
-      ]);
+      const annotation = makeAnnotation(drawTool, point, point);
+      gesture.current = { type: "draw", point, annotation };
+      setPending(annotation);
     }
   };
-  const onMouseMove = (e) => {
-    if (!drawStart) return;
-    const p = svgCoords(e);
-    if (["trendline", "rectangle", "arrow", "measure"].includes(drawTool)) {
-      setPending({
-        id: "pending",
-        type: drawTool,
-        x1: drawStart.x,
-        y1: drawStart.y,
-        x2: p.x,
-        y2: p.y,
-      });
+  const onPointerMove = (event) => {
+    if (!pointers.current.has(event.pointerId)) return;
+    const point = svgCoords(event);
+    pointers.current.set(event.pointerId, point);
+    const current = gesture.current;
+    if (!current) return;
+    if (pointers.current.size >= 2 && current.type === "pinch") {
+      const [a, b] = [...pointers.current.values()];
+      const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+      applyRange(
+        zoomRange(current.range, current.distance / distance, current.anchor),
+      );
+    } else if (current.type === "pan") {
+      applyRange(
+        panRange(
+          current.range,
+          (current.point.x - point.x) / (geometry.width - geometry.px * 2),
+        ),
+        false,
+      );
+    } else if (current.type === "draw") {
+      current.annotation = makeAnnotation(
+        current.annotation.type,
+        current.point,
+        {
+          x: point.x,
+          y: clamp(point.y, geometry.py, geometry.mainH - geometry.py - 14),
+        },
+      );
+      setPending(current.annotation);
     }
   };
-  const onMouseUp = (e) => {
-    if (!drawStart) return;
-    const p = svgCoords(e);
-    if (pending) {
-      setAnnotations((prev) => [
-        ...prev,
-        { ...pending, id: Date.now().toString() },
+  const onPointerUp = (event) => {
+    const current = gesture.current;
+    if (current?.type === "draw")
+      setAnnotations((previous) => [
+        ...previous,
+        { ...current.annotation, id: crypto.randomUUID() },
       ]);
-      setPending(null);
+    pointers.current.delete(event.pointerId);
+    gesture.current = null;
+    setPending(null);
+    if (pointers.current.size === 1)
+      gesture.current = {
+        type: "pan",
+        point: [...pointers.current.values()][0],
+        range,
+      };
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-    setDrawStart(null);
+  };
+  const cancelGesture = () => {
+    pointers.current.clear();
+    gesture.current = null;
+    setPending(null);
+  };
+  const onChartKeyDown = (event) => {
+    if (["+", "="].includes(event.key)) {
+      event.preventDefault();
+      zoom(0.5);
+    } else if (event.key === "-") {
+      event.preventDefault();
+      zoom(2);
+    } else if (event.key === "Home") {
+      event.preventDefault();
+      resetView();
+    } else if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+      event.preventDefault();
+      applyRange(
+        panRange(range, event.key === "ArrowLeft" ? -0.2 : 0.2),
+        false,
+      );
+    }
   };
   return (
     <div
@@ -2493,79 +2681,93 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
           </button>
         </div>
 
-        {/* Controls row */}
-        <div className="flex items-center gap-4 mb-3">
-          {/* Ticker */}
-          <div className="relative">
-            <button
-              onClick={() => setTickerOpen((v) => !v)}
-              className="flex items-center gap-1.5"
-              style={{
-                fontFamily: MONO,
-                fontSize: "10px",
-                letterSpacing: "0.06em",
-                padding: "4px 10px",
-                cursor: "pointer",
-                backgroundColor: tickerOpen ? t.orangeDim : "transparent",
-                color: tickerOpen ? t.orange : t.textSec,
-                borderTop: `1px solid ${tickerOpen ? t.orange : t.border}`,
-                borderRight: `1px solid ${tickerOpen ? t.orange : t.border}`,
-                borderBottom: `1px solid ${tickerOpen ? t.orange : t.border}`,
-                borderLeft: `1px solid ${tickerOpen ? t.orange : t.border}`,
-              }}
-            >
-              {ticker} <Ico.ChevD />
-            </button>
-            {tickerOpen && (
-              <div
-                className="absolute left-0 top-full z-20"
+        <section
+          ref={frameRef}
+          className={`technical-chart-frame${expanded ? " is-fullscreen" : ""}`}
+          aria-label="Analisis grafik"
+          style={{
+            "--chart-bg": t.bg,
+            "--chart-border": t.border,
+            "--chart-accent": t.orange,
+            "--chart-text": t.textSec,
+            "--chart-active": t.orangeDim,
+          }}
+        >
+          {/* Controls row */}
+          <div className="technical-chart-controls flex items-center gap-4 mb-3">
+            {/* Ticker */}
+            <div className="relative">
+              <button
+                onClick={() => setTickerOpen((v) => !v)}
+                className="flex items-center gap-1.5"
                 style={{
-                  backgroundColor: t.surface,
-                  border: `1px solid ${t.border}`,
-                  minWidth: "100px",
+                  fontFamily: MONO,
+                  fontSize: "10px",
+                  letterSpacing: "0.06em",
+                  padding: "4px 10px",
+                  cursor: "pointer",
+                  backgroundColor: tickerOpen ? t.orangeDim : "transparent",
+                  color: tickerOpen ? t.orange : t.textSec,
+                  borderTop: `1px solid ${tickerOpen ? t.orange : t.border}`,
+                  borderRight: `1px solid ${tickerOpen ? t.orange : t.border}`,
+                  borderBottom: `1px solid ${tickerOpen ? t.orange : t.border}`,
+                  borderLeft: `1px solid ${tickerOpen ? t.orange : t.border}`,
                 }}
               >
-                {["BBCA", "BBRI", "BMRI", "TLKM", "ASII", "IHSG"].map((tk) => (
-                  <div
-                    key={tk}
-                    onClick={() => {
-                      setTicker(tk);
-                      setAnnotations([]);
-                      setPending(null);
-                      setTickerOpen(false);
-                      setAiQ(`Analyze ${tk}`);
-                    }}
-                    className="px-3 py-1.5 cursor-pointer"
-                    style={{
-                      fontFamily: MONO,
-                      fontSize: "10px",
-                      color: tk === ticker ? t.orange : t.textSec,
-                      backgroundColor:
-                        tk === ticker ? t.orangeDim : "transparent",
-                    }}
-                    onMouseEnter={(e) =>
-                      (e.currentTarget.style.backgroundColor = t.surfaceHi)
-                    }
-                    onMouseLeave={(e) =>
-                      (e.currentTarget.style.backgroundColor =
-                        tk === ticker ? t.orangeDim : "transparent")
-                    }
-                  >
-                    {tk}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-          {/* Timeframe */}
-          <div className="flex items-center gap-0.5">
-            {["1M", "5M", "15M", "30M", "1H", "4H", "1D", "1W", "1MTH"].map(
-              (f) => (
+                {ticker} <Ico.ChevD />
+              </button>
+              {tickerOpen && (
+                <div
+                  className="absolute left-0 top-full z-20"
+                  style={{
+                    backgroundColor: t.surface,
+                    border: `1px solid ${t.border}`,
+                    minWidth: "100px",
+                  }}
+                >
+                  {["BBCA", "BBRI", "BMRI", "TLKM", "ASII", "IHSG"].map(
+                    (tk) => (
+                      <div
+                        key={tk}
+                        onClick={() => {
+                          setTicker(tk);
+                          resetView();
+                          setAnnotations([]);
+                          setPending(null);
+                          setTickerOpen(false);
+                          setAiQ(`Analyze ${tk}`);
+                        }}
+                        className="px-3 py-1.5 cursor-pointer"
+                        style={{
+                          fontFamily: MONO,
+                          fontSize: "10px",
+                          color: tk === ticker ? t.orange : t.textSec,
+                          backgroundColor:
+                            tk === ticker ? t.orangeDim : "transparent",
+                        }}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.backgroundColor = t.surfaceHi)
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.backgroundColor =
+                            tk === ticker ? t.orangeDim : "transparent")
+                        }
+                      >
+                        {tk}
+                      </div>
+                    ),
+                  )}
+                </div>
+              )}
+            </div>
+            {/* Timeframe */}
+            <div className="flex items-center gap-0.5">
+              {TIMEFRAMES.map((f) => (
                 <button
                   key={f}
                   onClick={() => {
                     setTf(f);
-                    setAnnotations([]);
+                    resetView();
                     setPending(null);
                     setAiQ(`Analyze ${ticker} ${f} chart`);
                   }}
@@ -2586,135 +2788,196 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
                 >
                   {f}
                 </button>
-              ),
-            )}
+              ))}
+            </div>
+            {/* Indicators dropdown */}
+            <IndicatorMenu indicators={indicators} onToggle={togInd} />
+            <div className="chart-navigation" aria-label="Navigasi grafik">
+              <button
+                type="button"
+                aria-label="Perkecil grafik"
+                title="Zoom out (−)"
+                disabled={!range || span >= MAX_SPAN}
+                onClick={() => zoom(2)}
+              >
+                −
+              </button>
+              <button
+                type="button"
+                aria-label="Perbesar grafik"
+                title="Zoom in (+)"
+                disabled={!range || span <= MIN_SPAN}
+                onClick={() => zoom(0.5)}
+              >
+                +
+              </button>
+              <button
+                type="button"
+                aria-label="Reset zoom grafik"
+                title="Kembali ke rentang terbaru (Home)"
+                onClick={resetView}
+              >
+                RESET
+              </button>
+              <button
+                type="button"
+                aria-label={
+                  expanded
+                    ? "Keluar fullscreen grafik"
+                    : "Buka grafik fullscreen"
+                }
+                aria-pressed={expanded}
+                title={
+                  expanded ? "Keluar fullscreen (Esc)" : "Fullscreen grafik"
+                }
+                onClick={toggleFullscreen}
+              >
+                {expanded ? "EXIT ⛶" : "FULLSCREEN ⛶"}
+              </button>
+            </div>
           </div>
-          {/* Indicators dropdown */}
-          <IndicatorMenu indicators={indicators} onToggle={togInd} />
-        </div>
 
-        {/* Drawing toolbar + Chart */}
-        <div className="flex gap-0" style={{ border: `1px solid ${t.border}` }}>
-          {/* Toolbar */}
+          {/* Drawing toolbar + Chart */}
           <div
-            className="flex flex-col flex-shrink-0"
-            style={{
-              borderRight: `1px solid ${t.border}`,
-              backgroundColor: t.sidebar,
-            }}
+            className="technical-chart-body flex gap-0"
+            style={{ border: `1px solid ${t.border}` }}
           >
-            {DRAW_TOOLS.map(([tool, Icon]) => (
-              <button
-                key={tool}
-                onClick={() => setDrawTool(tool)}
-                title={tool.toUpperCase()}
-                className="flex items-center justify-center"
-                style={{
-                  width: "32px",
-                  height: "32px",
-                  cursor: "pointer",
-                  border: "none",
-                  backgroundColor:
-                    drawTool === tool ? t.orangeDim : "transparent",
-                  color: drawTool === tool ? t.orange : t.textMut,
-                  borderBottom: `1px solid ${t.border}`,
-                }}
-              >
-                <Icon />
-              </button>
-            ))}
-            {annotations.length > 0 && (
-              <button
-                onClick={() => setAnnotations([])}
-                title="Clear"
-                className="flex items-center justify-center"
-                style={{
-                  width: "32px",
-                  height: "32px",
-                  cursor: "pointer",
-                  border: "none",
-                  backgroundColor: "transparent",
-                  color: t.neg,
-                  borderTop: `1px solid ${t.border}`,
-                  marginTop: "auto",
-                }}
-              >
-                <Ico.Close />
-              </button>
-            )}
-          </div>
-          {/* Chart */}
-          <div style={{ flex: 1, overflow: "hidden" }}>
+            {/* Toolbar */}
             <div
-              className="flex items-center justify-between px-4 py-2"
-              style={{ borderBottom: `1px solid ${t.border}` }}
+              className="flex flex-col flex-shrink-0"
+              style={{
+                borderRight: `1px solid ${t.border}`,
+                backgroundColor: t.sidebar,
+              }}
             >
-              <div className="flex items-center gap-4">
-                <span
+              {DRAW_TOOLS.map(([tool, Icon]) => (
+                <button
+                  key={tool}
+                  onClick={() => setDrawTool(tool)}
+                  title={tool.toUpperCase()}
+                  className="flex items-center justify-center"
                   style={{
-                    fontFamily: MONO,
-                    fontSize: "10px",
-                    color: t.textMut,
-                    letterSpacing: "0.06em",
+                    width: "32px",
+                    height: "32px",
+                    cursor: "pointer",
+                    border: "none",
+                    backgroundColor:
+                      drawTool === tool ? t.orangeDim : "transparent",
+                    color: drawTool === tool ? t.orange : t.textMut,
+                    borderBottom: `1px solid ${t.border}`,
                   }}
                 >
-                  {ticker} / {tf}
-                </span>
-                {[
-                  ["O", fmt(lastBar?.open)],
-                  ["H", fmt(lastBar?.high)],
-                  ["L", fmt(lastBar?.low)],
-                  ["C", fmt(lastBar?.close)],
-                ].map(([k, v]) => (
-                  <span key={k} style={{ fontFamily: MONO, fontSize: "10px" }}>
-                    <span style={{ color: t.textMut }}>{k} </span>
-                    <span
-                      style={{
-                        color: k === "H" ? t.pos : k === "L" ? t.neg : t.text,
-                      }}
-                    >
-                      {v}
-                    </span>
-                  </span>
-                ))}
-              </div>
-              <div className="flex items-center gap-1.5">
-                <div
+                  <Icon />
+                </button>
+              ))}
+              {annotations.length > 0 && (
+                <button
+                  onClick={() => setAnnotations([])}
+                  title="Clear"
+                  className="flex items-center justify-center"
                   style={{
-                    width: "5px",
-                    height: "5px",
-                    backgroundColor: t.pos,
+                    width: "32px",
+                    height: "32px",
+                    cursor: "pointer",
+                    border: "none",
+                    backgroundColor: "transparent",
+                    color: t.neg,
+                    borderTop: `1px solid ${t.border}`,
+                    marginTop: "auto",
                   }}
-                />
+                >
+                  <Ico.Close />
+                </button>
+              )}
+            </div>
+            {/* Chart */}
+            <div
+              className="technical-chart-content"
+              style={{ flex: 1, overflow: "hidden" }}
+            >
+              <div
+                className="flex items-center justify-between px-4 py-2"
+                style={{ borderBottom: `1px solid ${t.border}` }}
+              >
+                <div className="flex items-center gap-4">
+                  <span
+                    style={{
+                      fontFamily: MONO,
+                      fontSize: "10px",
+                      color: t.textMut,
+                      letterSpacing: "0.06em",
+                    }}
+                  >
+                    {ticker} / {tf}
+                  </span>
+                  {[
+                    ["O", fmt(lastBar?.open)],
+                    ["H", fmt(lastBar?.high)],
+                    ["L", fmt(lastBar?.low)],
+                    ["C", fmt(lastBar?.close)],
+                  ].map(([k, v]) => (
+                    <span
+                      key={k}
+                      style={{ fontFamily: MONO, fontSize: "10px" }}
+                    >
+                      <span style={{ color: t.textMut }}>{k} </span>
+                      <span
+                        style={{
+                          color: k === "H" ? t.pos : k === "L" ? t.neg : t.text,
+                        }}
+                      >
+                        {v}
+                      </span>
+                    </span>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5">
+                  <div
+                    style={{
+                      width: "5px",
+                      height: "5px",
+                      backgroundColor: t.pos,
+                    }}
+                  />
+                  <Lbl>
+                    {chart.quote?.session === "REGULAR"
+                      ? "SESI REGULER · DELAYED"
+                      : chart.quote?.session === "CLOSED"
+                        ? "MARKET CLOSED"
+                        : "STATUS —"}
+                  </Lbl>
+                </div>
+              </div>
+              <CandleChart
+                annotations={annotations}
+                pendingAnnotation={pending}
+                drawTool={drawTool}
+                svgRef={svgRef}
+                range={range}
+                geometry={geometry}
+                visible={visible}
+                pointerHandlers={{
+                  onPointerDown,
+                  onPointerMove,
+                  onPointerUp,
+                  onPointerCancel: cancelGesture,
+                }}
+                onKeyDown={onChartKeyDown}
+              />
+              <div
+                className="px-4 py-1.5"
+                style={{ borderTop: `1px solid ${t.border}` }}
+              >
                 <Lbl>
-                  {chart.quote?.session === "REGULAR"
-                    ? "SESI REGULER · DELAYED"
-                    : chart.quote?.session === "CLOSED"
-                      ? "MARKET CLOSED"
-                      : "STATUS —"}
+                  {feedLabel(chart)} ·{" "}
+                  {DRAW_TOOLS.find(([t]) => t === drawTool)?.[0]?.toUpperCase()}{" "}
+                  · {visible.bars.length} candle · scroll/pinch: zoom · seret:
+                  geser{expanded ? " · Esc: keluar" : ""}
                 </Lbl>
               </div>
             </div>
-            <CandleChart
-              annotations={annotations}
-              pendingAnnotation={pending}
-              drawTool={drawTool}
-              onMouseDown={onMouseDown}
-              onMouseMove={onMouseMove}
-              onMouseUp={onMouseUp}
-            />
-            <div
-              className="px-4 py-1.5"
-              style={{ borderTop: `1px solid ${t.border}` }}
-            >
-              <Lbl>
-                {feedLabel(chart)} ·{" "}
-                {DRAW_TOOLS.find(([t]) => t === drawTool)?.[0]?.toUpperCase()}
-              </Lbl>
-            </div>
           </div>
-        </div>
-
+        </section>
         {/* Technical Notes + Personal Intelligence */}
         <div
           className="grid grid-cols-2 gap-0 mt-0"
@@ -2857,7 +3120,19 @@ function AIPanel({
   useWeb,
   setUseWeb,
 }) {
-  const { t, chart, technicalTicker, technicalTf, series, overview } = useApp();
+  const {
+    t,
+    mode,
+    user,
+    chart,
+    technicalTicker,
+    technicalTf,
+    series,
+    overview,
+  } = useApp();
+  const accountName = user?.name?.trim() || "Admin";
+  const messageText = mode === "dark" ? "#F3EFE7" : t.text;
+  const secondaryText = mode === "dark" ? "#BEB8AD" : t.textSec;
   const [focused, setFocused] = useState(false);
   const endRef = useRef(null);
   useEffect(() => {
@@ -2912,7 +3187,11 @@ function AIPanel({
           </div>
           <div className="flex items-center gap-1.5">
             <span
-              style={{ fontFamily: MONO, fontSize: "8.5px", color: t.textMut }}
+              style={{
+                fontFamily: MONO,
+                fontSize: "8.5px",
+                color: secondaryText,
+              }}
             >
               AI ANALYST · ARAKANDAR
             </span>
@@ -2987,13 +3266,17 @@ function AIPanel({
         <Lbl accent style={{ display: "block", marginBottom: "6px" }}>
           {workspace === "market" ? "MARKET CONTEXT" : "TECHNICAL CONTEXT"}
         </Lbl>
-        <p style={{ fontFamily: MONO, fontSize: "9px", color: t.textSec }}>
+        <p style={{ fontFamily: MONO, fontSize: "9px", color: secondaryText }}>
           {feedLabel(chart)}
         </p>
         {ctxRows.map((r) => (
           <div key={r.k} className="flex justify-between py-0.5">
             <span
-              style={{ fontFamily: MONO, fontSize: "9px", color: t.textMut }}
+              style={{
+                fontFamily: MONO,
+                fontSize: "9px",
+                color: secondaryText,
+              }}
             >
               {r.k}
             </span>
@@ -3020,7 +3303,7 @@ function AIPanel({
             style={{
               fontFamily: MONO,
               fontSize: "10px",
-              color: t.textMut,
+              color: secondaryText,
               lineHeight: "1.6",
             }}
           >
@@ -3028,106 +3311,140 @@ function AIPanel({
           </div>
         )}
         {messages.map((m, i) => (
-          <div key={i} className="mb-4">
-            <Lbl
-              style={{
-                display: "block",
-                marginBottom: "4px",
-                color: m.role === "ai" ? t.orange : t.textMut,
-              }}
+          <div
+            key={m.id || i}
+            className={m.role === "user" ? "chat-user-message mb-4" : "mb-4"}
+            style={
+              m.role === "user"
+                ? {
+                    "--chat-bubble-bg": t.surfaceHi,
+                    "--chat-bubble-tint": t.orangeDim,
+                    "--chat-bubble-border": t.orange + "88",
+                  }
+                : undefined
+            }
+          >
+            <div
+              className={
+                m.role === "user" ? "chat-user-message-content" : undefined
+              }
             >
-              {m.role === "ai" ? "ARAKAN NDAR" : "USER"}
-            </Lbl>
-            {m.analyzing ? (
-              <div className="flex items-center gap-2">
-                <span
-                  style={{
-                    fontFamily: MONO,
-                    fontSize: "10px",
-                    color: t.textMut,
-                  }}
-                >
-                  {useWeb ? "SEARCHING WEB & ANALYZING..." : "ANALYZING..."}
-                </span>
-                <div style={{ display: "flex", gap: "3px" }}>
-                  {[0, 1, 2].map((d) => (
-                    <div
-                      key={d}
-                      style={{
-                        width: "3px",
-                        height: "3px",
-                        backgroundColor: t.orange,
-                        animation: `pulse 1s ${d * 0.3}s infinite`,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            ) : (
-              <p
+              <Lbl
                 style={{
-                  fontFamily: MONO,
-                  fontSize: "10px",
-                  color: m.role === "ai" ? t.textSec : t.text,
-                  lineHeight: "1.65",
-                  whiteSpace: "pre-line",
-                }}
-              >
-                {m.text}
-              </p>
-            )}
-            {m.web && !m.analyzing && (
-              <div
-                style={{
-                  marginTop: "8px",
-                  fontFamily: MONO,
-                  fontSize: "9px",
-                  lineHeight: "1.6",
-                  color: t.textSec,
+                  display: "block",
+                  marginBottom: "4px",
+                  color: t.orange,
                   overflowWrap: "anywhere",
                 }}
               >
-                <p>
-                  {m.web.status === "ok"
-                    ? "Sumber pencarian web"
-                    : m.web.status === "disabled"
-                      ? "Pencarian web nonaktif"
-                      : m.web.status === "empty"
-                        ? "Tidak ada sumber web yang dapat digunakan"
-                        : "Pencarian web gagal · informasi terbaru belum terverifikasi"}
-                </p>
-                {m.web.searched_at && (
-                  <time dateTime={m.web.searched_at}>
-                    Dicari:{" "}
-                    {new Date(m.web.searched_at).toLocaleString("id-ID")}
-                  </time>
-                )}
-                {m.web.sources.map((source) => (
-                  <a
-                    key={source.id}
-                    href={source.url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    title={source.snippet}
+                {m.role === "ai" ? "ARAKAN NDAR" : accountName}
+              </Lbl>
+              {m.analyzing ? (
+                <div className="flex items-center gap-2">
+                  <span
                     style={{
-                      display: "block",
-                      color: t.orange,
-                      marginTop: "4px",
+                      fontFamily: MONO,
+                      fontSize: "10px",
+                      color: secondaryText,
                     }}
                   >
-                    [{source.id}] {source.title} ↗
-                    {source.published_at && (
-                      <span style={{ display: "block", color: t.textSec }}>
-                        Terbit:{" "}
-                        {new Date(source.published_at).toLocaleDateString(
-                          "id-ID",
-                        )}
-                      </span>
-                    )}
-                  </a>
-                ))}
-              </div>
-            )}
+                    {useWeb ? "SEARCHING WEB & ANALYZING..." : "ANALYZING..."}
+                  </span>
+                  <div style={{ display: "flex", gap: "3px" }}>
+                    {[0, 1, 2].map((d) => (
+                      <div
+                        key={d}
+                        style={{
+                          width: "3px",
+                          height: "3px",
+                          backgroundColor: t.orange,
+                          animation: `pulse 1s ${d * 0.3}s infinite`,
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              ) : m.role === "ai" ? (
+                <MessageMarkdown
+                  text={m.text}
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: "11px",
+                    color: messageText,
+                    "--markdown-accent": t.orange,
+                    "--markdown-border": t.border,
+                    "--markdown-surface": t.surfaceHi,
+                  }}
+                />
+              ) : (
+                <p
+                  style={{
+                    fontFamily: MONO,
+                    fontSize: "11px",
+                    color: messageText,
+                    lineHeight: "1.75",
+                    whiteSpace: "pre-wrap",
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  {m.text}
+                </p>
+              )}
+              {m.web && !m.analyzing && (
+                <div
+                  style={{
+                    marginTop: "8px",
+                    fontFamily: MONO,
+                    fontSize: "9px",
+                    lineHeight: "1.6",
+                    color: secondaryText,
+                    overflowWrap: "anywhere",
+                  }}
+                >
+                  <p>
+                    {m.web.status === "ok"
+                      ? "Sumber pencarian web"
+                      : m.web.status === "disabled"
+                        ? "Pencarian web nonaktif"
+                        : m.web.status === "empty"
+                          ? "Tidak ada sumber web yang dapat digunakan"
+                          : "Pencarian web gagal · informasi terbaru belum terverifikasi"}
+                  </p>
+                  {m.web.searched_at && (
+                    <time dateTime={m.web.searched_at}>
+                      Dicari:{" "}
+                      {new Date(m.web.searched_at).toLocaleString("id-ID")}
+                    </time>
+                  )}
+                  {m.web.sources.map((source) => (
+                    <a
+                      key={source.id}
+                      href={source.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title={source.snippet}
+                      style={{
+                        display: "block",
+                        color: t.orange,
+                        marginTop: "4px",
+                      }}
+                    >
+                      [{source.id}] {source.title} ↗
+                      {source.published_at && (
+                        <span
+                          style={{ display: "block", color: secondaryText }}
+                        >
+                          Terbit:{" "}
+                          {new Date(source.published_at).toLocaleDateString(
+                            "id-ID",
+                          )}
+                        </span>
+                      )}
+                    </a>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         ))}
         <div ref={endRef} />

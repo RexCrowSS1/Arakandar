@@ -262,9 +262,12 @@ BANDAR_PASAR_MARKET_TIMEOUT_SECONDS=8
 ```
 
 Mode `market` mendukung `1D,5D,1M,3M,6M,1Y,ALL`; mode `technical` mendukung
-`1M,5M,15M,30M,1H,4H,1D,1W,1MTH`. Di mode technical, `1M` berarti menit;
-`1MTH` berarti bulan. Candle 4 jam digabung dari bar 60 menit, dimulai dari bar
-pertama setiap sesi/tanggal bursa. Grafik teknikal menampilkan 120 candle terakhir;
+`1M,5M,15M,30M,1H,4H,1D,1W,1MTH,1Y`. Di mode technical, `1M` berarti menit;
+`1MTH` berarti bulan, `1Y` berarti candle tahunan yang diagregasi dari OHLCV bulanan
+berdasarkan tahun kalender bursa. Candle 4 jam digabung dari bar 60 menit, dimulai dari bar
+pertama setiap sesi/tanggal bursa. Snapshot sesi terbaru dari penyedia digabung ke candle
+minggu/bulan terkait agar tidak menampilkan dua candle dalam periode yang sama.
+Grafik teknikal menampilkan candle dalam rentang zoom yang dipilih;
 indikator memakai hingga 1.500 bar untuk warmup. MA/EMA20, RSI14 Wilder, MACD12/26/9,
 Bollinger20 ±2 standar deviasi, stochastic %K14, volume, dan VWAP sesi dihitung dari
 OHLCV. VWAP tersedia untuk intraday dengan volume lengkap, bukan candle harian.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import React, { act } from "react";
+import { INTERVAL_MS } from "../features/website-page-ui/chart-viewport.mjs";
 import { create } from "react-test-renderer";
 import { loadBindings, transform } from "next/dist/build/swc/index.js";
 
@@ -34,7 +35,7 @@ const { default: App } = await import(
 );
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
-test("website controls select actual chart resources and send the same technical context", async (t) => {
+async function mountMarket(t) {
   const previous = { window: globalThis.window, document: globalThis.document };
   globalThis.window = Object.assign(new EventTarget(), {
     localStorage: {
@@ -47,14 +48,23 @@ test("website controls select actual chart resources and send the same technical
   globalThis.document = Object.assign(new EventTarget(), { hidden: false });
   const requests = [];
   let sent, root;
-  const bars = Array.from({ length: 40 }, (_, i) => ({
-    time: new Date(Date.UTC(2026, 9, 7, 2, i)).toISOString(),
-    open: 100 + i,
-    high: 102 + i,
-    low: 99 + i,
-    close: 101 + i,
-    volume: 1000,
-  }));
+  const svgNode = Object.assign(new EventTarget(), {
+    getBoundingClientRect: () => ({ left: 0, top: 0, width: 860, height: 468 }),
+    focus() {},
+    setPointerCapture() {},
+    releasePointerCapture() {},
+  });
+  const frameNode = {
+    focus() {},
+    requestFullscreen: async () => {
+      document.fullscreenElement = frameNode;
+      document.dispatchEvent(new Event("fullscreenchange"));
+    },
+  };
+  document.exitFullscreen = async () => {
+    document.fullscreenElement = null;
+    document.dispatchEvent(new Event("fullscreenchange"));
+  };
   const user = { id: "admin", name: "Admin" };
   const detail = {
     conversation: { id: "saved", title: "New Conversation" },
@@ -76,7 +86,18 @@ test("website controls select actual chart resources and send the same technical
       });
     if (url.pathname === "/api/market/news")
       return Response.json({ status: "empty", sources: [] });
-    if (url.pathname === "/api/market/chart")
+    if (url.pathname === "/api/market/chart") {
+      const step =
+        INTERVAL_MS[url.searchParams.get("timeframe")] || INTERVAL_MS["1D"];
+      const end = Date.UTC(2026, 9, 7, 7, 50);
+      const bars = Array.from({ length: 240 }, (_, i) => ({
+        time: new Date(end - (239 - i) * step).toISOString(),
+        open: 100 + i,
+        high: 102 + i,
+        low: 99 + i,
+        close: 101 + i,
+        volume: 1000,
+      }));
       return Response.json({
         status: "ok",
         bars,
@@ -90,6 +111,7 @@ test("website controls select actual chart resources and send the same technical
           status: "ok",
         },
       });
+    }
     if (url.pathname === "/api/conversations" && options.method !== "POST")
       return Response.json({ user, conversations: [], has_more: false });
     if (url.pathname === "/api/conversations") return Response.json(detail);
@@ -105,8 +127,22 @@ test("website controls select actual chart resources and send the same technical
     globalThis.document = previous.document;
   });
   await act(async () => {
-    root = create(React.createElement(App));
+    root = create(React.createElement(App), {
+      createNodeMock: (element) =>
+        element.type === "svg" &&
+        element.props.className === "technical-candle-chart"
+          ? svgNode
+          : element.type === "section" &&
+              element.props["aria-label"] === "Analisis grafik"
+            ? frameNode
+            : null,
+    });
   });
+  return { root, requests, getSent: () => sent, svgNode, frameNode };
+}
+
+test("website controls select actual chart resources and send the same technical context", async (t) => {
+  const { root, requests, getSent } = await mountMarket(t);
   const text = (node) =>
     node.children
       .filter((child) => typeof child === "string")
@@ -162,7 +198,7 @@ test("website controls select actual chart resources and send the same technical
       nativeEvent: { isComposing: false },
     }),
   );
-  assert.deepEqual(sent.context, {
+  assert.deepEqual(getSent().context, {
     workspace: "technical",
     ticker: "BBRI",
     timeframe: "15M",
@@ -171,4 +207,152 @@ test("website controls select actual chart resources and send the same technical
   const tree = JSON.stringify(root.toJSON());
   assert.match(tree, /1,234.56/);
   assert.doesNotMatch(tree, /NaN|Infinity|7,245.32|STATIC DEMO DATA/);
+});
+
+test("chart zoom changes intervals through years/minutes, keeps RSI at 0–100, and resets", async (t) => {
+  const { root, requests } = await mountMarket(t);
+  await act(async () =>
+    root.root
+      .findAllByType("button")
+      .find((b) => b.children.includes("[ MANUAL ANALYSIS ]"))
+      .props.onClick(),
+  );
+  const chart = () =>
+    root.root.findByProps({ className: "technical-candle-chart" });
+  const initialSpan = chart().props["data-to"] - chart().props["data-from"];
+  for (let i = 0; i < 8; i++)
+    await act(async () =>
+      root.root
+        .findByProps({ "aria-label": "Perkecil grafik" })
+        .props.onClick(),
+    );
+  assert.ok(
+    chart().props["data-to"] - chart().props["data-from"] > initialSpan,
+  );
+  assert.ok(
+    requests.some(
+      (url) =>
+        url.searchParams.get("mode") === "technical" &&
+        url.searchParams.get("timeframe") === "1Y",
+    ),
+  );
+  for (let i = 0; i < 24; i++)
+    await act(async () =>
+      root.root
+        .findByProps({ "aria-label": "Perbesar grafik" })
+        .props.onClick(),
+    );
+  assert.ok(requests.some((url) => url.searchParams.get("timeframe") === "1M"));
+  assert.ok(
+    chart().props["data-bars"] > 0,
+    "Zoom into the current session, not future midnight",
+  );
+  assert.equal(
+    root.root.findByProps({ "aria-label": "Perbesar grafik" }).props.disabled,
+    true,
+  );
+  const rsi = root.root.findByProps({ "data-indicator": "RSI" });
+  assert.equal(rsi.props["data-min"], 0);
+  assert.equal(rsi.props["data-max"], 100);
+  for (const tick of ["0", "25", "50", "75", "100"])
+    assert.ok(
+      rsi.findAllByType("text").some((node) => node.children.includes(tick)),
+    );
+  await act(async () =>
+    root.root
+      .findByProps({ "aria-label": "Reset zoom grafik" })
+      .props.onClick(),
+  );
+  assert.ok(chart().props["data-bars"] >= 100);
+});
+
+test("wheel, drag, and pinch change the time window; fullscreen and Escape preserve it", async (t) => {
+  const { root, svgNode, frameNode } = await mountMarket(t);
+  await act(async () =>
+    root.root
+      .findAllByType("button")
+      .find((b) => b.children.includes("[ MANUAL ANALYSIS ]"))
+      .props.onClick(),
+  );
+  const chart = () =>
+    root.root.findByProps({ className: "technical-candle-chart" });
+  const span = () => chart().props["data-to"] - chart().props["data-from"];
+  const startSpan = span();
+  const wheel = Object.assign(new Event("wheel", { cancelable: true }), {
+    deltaY: -120,
+    deltaMode: 0,
+    clientX: 810,
+  });
+  await act(async () => svgNode.dispatchEvent(wheel));
+  assert.ok(wheel.defaultPrevented);
+  assert.ok(span() < startSpan);
+  const event = (pointerId, clientX) => ({
+    pointerId,
+    clientX,
+    clientY: 120,
+    button: 0,
+    currentTarget: svgNode,
+  });
+  const beforePan = chart().props["data-from"];
+  await act(async () => chart().props.onPointerDown(event(1, 400)));
+  await act(async () => chart().props.onPointerMove(event(1, 500)));
+  await act(async () => chart().props.onPointerUp(event(1, 500)));
+  assert.ok(chart().props["data-from"] < beforePan);
+  const beforePinch = span();
+  await act(async () => chart().props.onPointerDown(event(1, 300)));
+  await act(async () => chart().props.onPointerDown(event(2, 500)));
+  await act(async () => chart().props.onPointerMove(event(2, 650)));
+  await act(async () => chart().props.onPointerUp(event(2, 650)));
+  await act(async () => chart().props.onPointerUp(event(1, 300)));
+  assert.ok(span() < beforePinch);
+  const beforeFullscreen = [
+    chart().props["data-from"],
+    chart().props["data-to"],
+  ];
+  await act(async () =>
+    root.root
+      .findByProps({ "aria-label": "Buka grafik fullscreen" })
+      .props.onClick(),
+  );
+  assert.equal(document.fullscreenElement, frameNode);
+  assert.match(
+    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    /is-fullscreen/,
+  );
+  await act(async () =>
+    window.dispatchEvent(
+      Object.assign(new Event("keydown"), { key: "Escape" }),
+    ),
+  );
+  assert.equal(document.fullscreenElement, null);
+  assert.deepEqual(
+    [chart().props["data-from"], chart().props["data-to"]],
+    beforeFullscreen,
+  );
+  assert.doesNotMatch(
+    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    /is-fullscreen/,
+  );
+  frameNode.requestFullscreen = async () => {
+    throw new Error("Unavailable");
+  };
+  await act(async () =>
+    root.root
+      .findByProps({ "aria-label": "Buka grafik fullscreen" })
+      .props.onClick(),
+  );
+  assert.match(
+    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    /is-fullscreen/,
+  );
+  await act(async () =>
+    root.root
+      .findByProps({ "aria-label": "Keluar fullscreen grafik" })
+      .props.onClick(),
+  );
+  assert.doesNotMatch(
+    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    /is-fullscreen/,
+  );
+  assert.doesNotMatch(JSON.stringify(root.toJSON()), /NaN|Infinity/);
 });

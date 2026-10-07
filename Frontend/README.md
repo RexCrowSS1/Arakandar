@@ -56,7 +56,14 @@ arsip fixture desain, tidak diimpor oleh website aktif.
 - Timeframe, ticker, dan indikator aktif ikut konteks percakapan Supabase dan
   dipulihkan saat membuka riwayat. Backend menyertakan bukti harga pada jawaban AI.
 - Catatan/drawing masih lokal; reload atau unmount workspace menghapusnya.
-  Drawing berbasis koordinat SVG dan belum mengikuti pergeseran candle otomatis.
+  Drawing disimpan sebagai waktu/harga, sehingga tetap mengikuti zoom dan skala harga.
+- Scroll/pinch atau tombol +/− memperbesar/memperkecil grafik; drag menggeser waktu.
+  Interval candle otomatis mengikuti rentang, dari 1 menit sampai 1 tahun. Tombol
+  timeframe memilih interval secara manual, RESET/Home kembali ke data terbaru.
+  Intraday lama mungkin tidak tersedia dari penyedia; tampilan kosong menjelaskannya.
+- FULLSCREEN memperluas grafik beserta kontrol dan indikator; Esc/EXIT mengembalikannya.
+  Jika fullscreen native tidak didukung, grafik memenuhi viewport halaman.
+  RSI memakai skala tetap 0–100, tick 0/25/50/75/100, dan panduan 30/70.
 
 ## Menjalankan
 

@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.factory import create_app
-from app.market import MarketData, four_hour_bars, indicator_values, parse_bars
+from app.market import MarketData, calendar_bars, four_hour_bars, indicator_values, parse_bars
 
 
 def provider_result():
@@ -168,3 +168,99 @@ def test_market_api_works_with_inference_disabled():
         assert response.status_code == 200
         assert response.json()["quote"]["price"] == 105
         assert not app.state.chat_model.is_ready
+
+
+def test_yearly_candles_group_by_exchange_year_and_preserve_missing_volume():
+    bars = [
+        {
+            "time": "2024-12-01T00:00:00+00:00",
+            "open": 90,
+            "high": 110,
+            "low": 85,
+            "close": 100,
+            "volume": 5,
+        },
+        # UTC December 31 is January 1 at the exchange.
+        {
+            "time": "2024-12-31T17:00:00+00:00",
+            "open": 100,
+            "high": 120,
+            "low": 95,
+            "close": 115,
+            "volume": 10,
+        },
+        {
+            "time": "2025-11-30T17:00:00+00:00",
+            "open": 115,
+            "high": 125,
+            "low": 80,
+            "close": 90,
+            "volume": None,
+        },
+        {
+            "time": "2025-12-31T17:00:00+00:00",
+            "open": 90,
+            "high": 95,
+            "low": 80,
+            "close": 85,
+            "volume": 20,
+        },
+    ]
+    annual = calendar_bars(bars, "Asia/Jakarta", "1y")
+    assert len(annual) == 3
+    assert annual[1] == {
+        "time": bars[1]["time"],
+        "open": 100,
+        "high": 125,
+        "low": 80,
+        "close": 90,
+        "volume": None,
+    }
+    assert annual[-1]["volume"] == 20
+
+
+@pytest.mark.parametrize(
+    ("timeframe", "interval", "times"),
+    [
+        ("1W", "1wk", ["2025-12-21T17:00:00", "2025-12-28T17:00:00", "2026-01-02T09:00:00"]),
+        ("1MTH", "1mo", ["2025-11-30T17:00:00", "2025-12-31T17:00:00", "2026-01-02T09:00:00"]),
+    ],
+)
+def test_calendar_chart_merges_latest_session_into_exchange_week_or_month(
+    timeframe, interval, times
+):
+    market = service()
+    data = provider_result()
+    data["timestamp"] = [
+        int(datetime.fromisoformat(t).replace(tzinfo=UTC).timestamp()) for t in times
+    ]
+    data["indicators"]["quote"][0] = {
+        "open": [90, 100, 115],
+        "high": [110, 120, 125],
+        "low": [85, 95, 80],
+        "close": [100, 115, 90],
+        "volume": [5, 10, 20],
+    }
+    market.fetch_chart = Mock(return_value=data)
+    chart = market.chart("BBCA", timeframe, "technical")
+    assert chart["interval"] == interval
+    assert len(chart["bars"]) == 2
+    assert chart["bars"][-1] == {
+        "time": times[1] + "+00:00",
+        "open": 100,
+        "high": 125,
+        "low": 80,
+        "close": 90,
+        "volume": 30,
+    }
+
+
+def test_year_timeframe_uses_monthly_source_and_exposes_year_interval():
+    app = create_app(Settings(ai_enabled=False))
+    app.state.market.fetch_chart = Mock(return_value=provider_result())
+    with TestClient(app) as client:
+        response = client.get("/market/chart?ticker=BBCA&timeframe=1Y&mode=technical")
+    assert response.status_code == 200
+    assert response.json()["interval"] == "1y"
+    assert len(response.json()["bars"]) == 1
+    assert app.state.market.fetch_chart.call_args_list[0].args == ("BBCA", "max", "1mo")
