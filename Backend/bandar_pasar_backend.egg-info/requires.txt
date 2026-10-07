@@ -1,0 +1,16 @@
+ddgs==9.16.0
+fastapi>=0.115
+httpx>=0.28
+pydantic-settings>=2.7
+supabase>=2.0
+uvicorn[standard]>=0.34
+
+[dev]
+anyio>=4.8
+pytest>=8.3
+ruff>=0.9
+
+[inference]
+transformers<5,>=4.45
+torch>=2.4
+accelerate>=1.0
