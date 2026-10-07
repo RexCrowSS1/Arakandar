@@ -130,14 +130,39 @@ def test_overview_limits_movers_and_breadth_to_named_watchlist():
     data = market.overview()
     assert data["breadth"] == {
         "scope": "watchlist",
-        "total": 9,
-        "available": 9,
-        "advancing": 8,
+        "total": 20,
+        "available": 20,
+        "advancing": 19,
         "declining": 1,
         "unchanged": 0,
     }
     assert data["losers"][0]["ticker"] == "BBCA"
     assert "foreign_flow" in data["unavailable"]
+
+
+def test_requested_global_stocks_use_exchange_specific_symbols():
+    from app.market import SYMBOLS
+
+    assert {
+        ticker: SYMBOLS[ticker][0]
+        for ticker in ("BBCA", "BMRI", "BBRI", "MUFG", "SMFG", "HSBC", "BOCHK",
+                       "ICBC", "CCB", "ABC", "DBK", "CBK", "NVIDIA", "AAPL")
+    } == {
+        "BBCA": "BBCA.JK",
+        "BMRI": "BMRI.JK",
+        "BBRI": "BBRI.JK",
+        "MUFG": "8306.T",
+        "SMFG": "8316.T",
+        "HSBC": "0005.HK",
+        "BOCHK": "2388.HK",
+        "ICBC": "601398.SS",
+        "CCB": "601939.SS",
+        "ABC": "601288.SS",
+        "DBK": "DBK.DE",
+        "CBK": "CBK.DE",
+        "NVIDIA": "NVDA",
+        "AAPL": "AAPL",
+    }
 
 
 def test_all_provider_failures_produce_unavailable_without_demo_fallback():

@@ -24,10 +24,26 @@ SYMBOLS = {
     "HSI": ("^HSI", "Hang Seng"),
     "DAX": ("^GDAXI", "DAX"),
     "USDIDR": ("IDR=X", "USD/IDR"),
-    **{
-        symbol: (f"{symbol}.JK", symbol)
-        for symbol in ("BBCA", "BBRI", "BMRI", "TLKM", "ASII", "GOTO", "EXCL", "BBNI", "UNVR")
-    },
+    "BBCA": ("BBCA.JK", "Bank Central Asia"),
+    "BBRI": ("BBRI.JK", "Bank Rakyat Indonesia"),
+    "BMRI": ("BMRI.JK", "Bank Mandiri"),
+    "TLKM": ("TLKM.JK", "Telkom Indonesia"),
+    "ASII": ("ASII.JK", "Astra International"),
+    "GOTO": ("GOTO.JK", "GoTo Gojek Tokopedia"),
+    "EXCL": ("EXCL.JK", "XL Axiata"),
+    "BBNI": ("BBNI.JK", "Bank Negara Indonesia"),
+    "UNVR": ("UNVR.JK", "Unilever Indonesia"),
+    "MUFG": ("8306.T", "Mitsubishi UFJ Financial Group"),
+    "SMFG": ("8316.T", "Sumitomo Mitsui Financial Group"),
+    "HSBC": ("0005.HK", "HSBC Holdings"),
+    "BOCHK": ("2388.HK", "BOC Hong Kong Holdings"),
+    "ICBC": ("601398.SS", "Industrial and Commercial Bank of China"),
+    "CCB": ("601939.SS", "China Construction Bank"),
+    "ABC": ("601288.SS", "Agricultural Bank of China"),
+    "DBK": ("DBK.DE", "Deutsche Bank"),
+    "CBK": ("CBK.DE", "Commerzbank"),
+    "NVIDIA": ("NVDA", "NVIDIA"),
+    "AAPL": ("AAPL", "Apple"),
     "IDXFINANCE": ("IDXFINANCE.JK", "Financials"),
     "IDXENERGY": ("IDXENERGY.JK", "Energy"),
     "IDXNONCYC": ("IDXNONCYC.JK", "Consumer Non-Cyclicals"),
@@ -35,7 +51,28 @@ SYMBOLS = {
     "IDXTECHNO": ("IDXTECHNO.JK", "Technology"),
 }
 GLOBAL_TICKERS = ("IHSG", "SSE", "NIKKEI", "SP500", "FTSE", "HSI", "DAX", "USDIDR")
-WATCHLIST = ("BBCA", "BBRI", "BMRI", "TLKM", "ASII", "GOTO", "EXCL", "BBNI", "UNVR")
+WATCHLIST = (
+    "BBCA",
+    "BBRI",
+    "BMRI",
+    "TLKM",
+    "ASII",
+    "GOTO",
+    "EXCL",
+    "BBNI",
+    "UNVR",
+    "MUFG",
+    "SMFG",
+    "HSBC",
+    "BOCHK",
+    "ICBC",
+    "CCB",
+    "ABC",
+    "DBK",
+    "CBK",
+    "NVIDIA",
+    "AAPL",
+)
 SECTORS = ("IDXFINANCE", "IDXENERGY", "IDXNONCYC", "IDXHEALTH", "IDXTECHNO")
 RANGES = {
     "1D": ("1d", "5m"),

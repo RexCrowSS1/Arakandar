@@ -246,7 +246,7 @@ ruff format --check .
 
 Endpoint baca berikut bekerja saat `BANDAR_PASAR_AI_ENABLED=false`:
 
-- `GET /market/overview`: 8 indeks/kurs, watchlist 9 saham IDX, dan 5 indeks sektor.
+- `GET /market/overview`: 8 indeks/kurs, watchlist 20 saham (9 IDX dan 11 saham global), dan 5 indeks sektor.
 - `GET /market/chart?ticker=BBCA&timeframe=15M&mode=technical`: OHLCV dan quote harian.
 - `GET /market/news?ticker=IHSG`: hingga 5 berita Google News RSS beserta sumber/tanggal.
 
@@ -281,7 +281,7 @@ terakhir tetap ditampilkan bersama waktunya. Sumber ini bukan streaming real-tim
 Broker summary, foreign/domestic flow, nilai/frekuensi perdagangan, new high/low,
 dan breadth seluruh IDX memerlukan [feed berlisensi](https://data.idx.co.id/).
 Website menampilkan “—”/status belum tersedia untuk data tersebut. Movers dan
-breadth yang dihitung hanya mencakup watchlist 9 saham, bukan seluruh bursa.
+breadth yang dihitung hanya mencakup watchlist 20 saham, bukan seluruh bursa.
 
 `market` pada jawaban AI memuat quote, 5 bar terbaru, indikator, dan keterbatasan.
 Backend mengambilnya sendiri; client tidak dapat menyisipkan harga palsu melalui
