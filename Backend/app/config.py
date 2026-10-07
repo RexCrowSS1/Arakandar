@@ -20,13 +20,19 @@ class Settings(BaseSettings):
     )
 
     debug: bool = False
-    ai_enabled: bool = True
+    ai_enabled: bool = False
     ai_model_id: str = "Timothyemmanuel/Arakandar"
     ai_model_revision: str = "1b7b0adc10b5da17f94e0f14af08399d0e67744d"
     ai_cache_dir: Path = BACKEND_DIR / ".cache" / "huggingface"
     ai_device: Literal["auto", "cuda", "mps", "cpu"] = "auto"
     ai_max_new_tokens: int = Field(default=256, ge=1, le=1024)
     ai_context_tokens: int = Field(default=4096, ge=1024, le=16384)
+    web_enabled: bool = True
+    web_backend: Literal["google_news", "duckduckgo", "bing", "brave", "google"] = "google_news"
+    web_timeout_seconds: int = Field(default=8, ge=1, le=20)
+    web_max_results: int = Field(default=3, ge=1, le=5)
+    market_refresh_seconds: int = Field(default=60, ge=15, le=300)
+    market_timeout_seconds: int = Field(default=8, ge=1, le=20)
     cors_origins: list[str] = Field(default_factory=list)
     supabase_url: str | None = Field(
         default=None,

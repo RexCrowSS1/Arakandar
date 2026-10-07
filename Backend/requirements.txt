@@ -1,3 +1,4 @@
+ddgs==9.16.0
 fastapi>=0.115
 pydantic-settings>=2.7
 supabase>=2.0

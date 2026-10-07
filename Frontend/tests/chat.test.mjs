@@ -49,7 +49,36 @@ test("chat sends context and abort signal to the local API", async (t) => {
     assert.equal(options.signal, controller.signal);
     return Response.json({ reply: "Halo" });
   });
-  assert.equal(await requestChat(payload, controller.signal), "Halo");
+  assert.equal((await requestChat(payload, controller.signal)).reply, "Halo");
+});
+
+test("chat preserves web status and sources while rejecting executable links", async (t) => {
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({
+      reply: "Bukti [1]",
+      web: {
+        status: "ok",
+        searched_at: "2026-10-07T06:00:00Z",
+        sources: [
+          {
+            id: 1,
+            title: "IDX",
+            url: "https://www.idx.co.id",
+            snippet: "Bursa",
+          },
+          { id: 2, title: "Invalid", url: "javascript:alert(1)" },
+          { id: 3, title: "Invalid", url: "file:///etc/passwd" },
+        ],
+      },
+    }),
+  );
+  const result = await requestChat({ use_web: true });
+  assert.equal(result.web.status, "ok");
+  assert.equal(result.web.searched_at, "2026-10-07T06:00:00Z");
+  assert.deepEqual(
+    result.web.sources.map((source) => source.id),
+    [1],
+  );
 });
 
 test("model failures surface without substituting a demo reply", async (t) => {

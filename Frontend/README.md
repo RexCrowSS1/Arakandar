@@ -1,52 +1,62 @@
 # Arakan Ndar — Frontend
 
 Halaman utama mengintegrasikan **Website Page UI.zip** melalui
-`features/website-page-ui/WebsitePageUI.jsx` dan `data.js`.
+`features/website-page-ui/WebsitePageUI.jsx`.
 Ticker bergerak kanan ke kiri tanpa putus, berhenti saat hover/fokus, serta memiliki
 kontrol jeda dan kecepatan. Klik quote menyiapkan pertanyaan di panel analyst.
 Preferensi reduced motion menonaktifkan animasi dan menyediakan scroll manual.
-Navigasi mobile memisahkan menu, workspace, dan analyst. Harga masih snapshot demo.
-Chat halaman utama menggunakan model Arakandar lokal melalui `POST /api/chat`,
-yang meneruskan percakapan ke `POST /chat` pada backend FastAPI. Atur
+Navigasi mobile memisahkan menu, workspace, dan analyst. Data pasar mengambil feed publik yang tertunda sesuai bursa.
+Chat halaman utama menggunakan model Arakandar lokal melalui
+`POST /api/conversations/{id}/messages`, yang meneruskan pesan ke backend FastAPI. Atur
 `API_URL=http://127.0.0.1:8000` di `.env.local` dan jalankan backend dengan dependensi
 `inference` sesuai [panduan backend](../Backend/README.md#model-arakandar-lokal).
 Model yang belum siap atau gagal merespons ditampilkan sebagai error, tanpa
-menggantinya dengan respons demo. Riwayat dan draft bertahan saat panel diperbesar
-atau ditutup, dan dihapus saat membuat percakapan baru atau memuat ulang halaman.
+menggantinya dengan respons demo. **New Conversation** langsung membuat record
+Supabase milik satu user **Admin** bersama. Daftar **Recent** dan pencarian sidebar
+menggunakan riwayat database; memilih item memuat kembali pesan dan sumbernya.
+Reload memulihkan percakapan terakhir, dan model menggunakan riwayat dari Supabase
+untuk pertanyaan lanjutan. Draft belum terkirim tetap lokal.
 
-Implementasi sebelumnya tetap tersedia di `features/financial-platform`.
-Detail di bawah mendokumentasikan implementasi sebelumnya.
+Tidak ada login yang diperlukan. Identitas Admin ditampilkan pada profil yang
+sudah ada. Kunci Supabase hanya berada di backend. Styling, tata letak, dan bentuk
+tombol dipertahankan; yang berubah adalah data dan fungsi tombolnya.
+Pengiriman ulang memakai ID yang sama agar tidak menggandakan pesan. Jika AI gagal,
+pertanyaan yang sudah tersimpan tetap ada dan draft dikembalikan untuk dicoba lagi.
 
-Implementasi Next.js App Router dari desain **AI Financial Platform UI**.
-Tampilan memakai Tailwind CSS sepenuhnya. Palet, font, dan animasi berada di
-`tailwind.config.mjs`; `app/globals.css` hanya memuat Tailwind dan konfigurasinya.
-Barlow, Barlow Condensed, dan JetBrains Mono disajikan lokal melalui `next/font`.
+**Cari di internet** aktif secara default. Pertanyaan terakhir dan ticker dikirim
+ke pencarian backend; riwayat lengkap tetap untuk inferensi lokal. Jawaban menyertakan
+status pencarian, tautan sumber, waktu pencarian, dan tanggal terbit jika tersedia.
+Jika pencarian gagal, panel menjelaskan bahwa informasi terbaru belum terverifikasi.
+Google News RSS menjadi sumber berita default tanpa API key; pilihan mesin pencari
+web umum tersedia di [konfigurasi backend](../Backend/README.md#koneksi-internet-dan-sumber-jawaban).
+Batas waktu proxy chat adalah 240 detik untuk
+mengakomodasi pencarian dan inferensi lokal.
 
-## Struktur
+## Grafik dan data pasar
 
-```text
-app/
-  page.jsx                       Route utama
-  layout.jsx                     Metadata, font, dan layout dokumen
-  fonts.js                       Font lokal dari paket Fontsource
-  globals.css                    Entry Tailwind
-features/financial-platform/
-  FinancialPlatform.jsx          Shell, workspace aktif, catatan, dan drawing
-  components/                    Ticker, sidebar, header, input, kontrol bersama
-  workspaces/                    Market dan Technical
-  analyst/                       Panel percakapan dan respons demo
-  chart/                         Rendering SVG, drawing, perhitungan indikator
-  data/                          Snapshot pasar dan daftar recent dari desain
-  ui.js                          Utility dan recipe interaksi Tailwind
-tests/
-  chart-math.test.mjs             Regresi indikator dan kasus data kosong
-tailwind.config.mjs               Token desain dan animasi
-```
+Halaman utama memakai `WebsitePageUI.jsx`, `use-market.mjs`, dan `market-data.mjs`.
+Kode desain lama di `features/financial-platform` tidak menjadi route utama;
+fungsi matematik indikatornya dipakai kembali. `website-page-ui/data.js` hanya
+arsip fixture desain, tidak diimpor oleh website aktif.
 
-`page.jsx` tetap berupa Server Component yang merender `FinancialPlatform` sebagai
-client boundary. State input disimpan dekat komponennya; state lintas workspace
-berada di shell. Perhitungan indikator berupa fungsi murni agar dapat diuji tanpa
-browser. Konfigurasi Vite dan skrip deployment dari ZIP tidak digunakan.
+- Ticker, market overview, OHLCV, volume, sektor, movers watchlist, dan berita
+  memakai endpoint `/api/market/*` dari backend. Grafik mengikuti ticker/rentang
+  yang dipilih, termasuk ketika memilih sektor atau top mover.
+- Harga/grafik diperiksa otomatis setiap 60 detik; berita setiap 5 menit. Polling
+  berhenti ketika tab tersembunyi dan dilanjutkan saat aktif. Request lama dibatalkan
+  saat ticker/timeframe berganti, sehingga respons lama tidak menimpa pilihan baru.
+- IDX menggunakan feed publik Yahoo dengan delay 10 menit. Waktu/sumber dan status
+  stale/offline ditampilkan. Kegagalan tidak diganti angka demo; cache browser
+  kedaluwarsa setelah 10 menit tanpa pembaruan.
+- Breadth dan movers terbatas pada watchlist 9 saham. Broker summary, foreign flow,
+  domestic flow, trade value/frequency dan new high/low memerlukan feed IDX berlisensi.
+- Grafik teknikal memakai candle OHLCV asli dan indikator MA20, EMA20, RSI14,
+  MACD12/26/9, Bollinger20, volume, stochastic %K14, serta VWAP intraday. Nilai
+  warmup/volume hilang ditampilkan sebagai belum tersedia, bukan nol.
+- Timeframe, ticker, dan indikator aktif ikut konteks percakapan Supabase dan
+  dipulihkan saat membuka riwayat. Backend menyertakan bukti harga pada jawaban AI.
+- Catatan/drawing masih lokal; reload atau unmount workspace menghapusnya.
+  Drawing berbasis koordinat SVG dan belum mengikuti pergeseran candle otomatis.
 
 ## Menjalankan
 
@@ -58,29 +68,9 @@ npm ci
 npm run dev
 ```
 
-Buka `http://localhost:3000`. Preview market tetap bisa dibuka tanpa backend;
-chat membutuhkan backend lokal dan bobot Arakandar. Kunci API tidak diperlukan
-untuk repo model publik ini.
-
-## Fitur dan batas data
-
-- Layout tiga kolom pada desktop; menu dan panel analyst terpisah pada mobile.
-- Pencarian memfilter Recent. Memilih item membuka workspace dan ticker terkait.
-- Catatan bertahan ketika berpindah workspace/ticker selama sesi halaman berjalan.
-  Catatan dan drawing belum disimpan permanen; reload akan menghapusnya.
-- Sample harga intraday tersedia untuk IHSG dan BBCA. Ticker lain atau rentang
-  waktu lain menampilkan keadaan tanpa data.
-- LINE/AREA, SMA5, EMA10, RSI14, Bollinger20, dan volume dapat digunakan.
-  Candle/OHLC dinonaktifkan karena ZIP hanya menyediakan closing prices.
-  MACD dinonaktifkan untuk snapshot 25 harga; perhitungannya memerlukan minimal 26.
-- Drawing: klik titik di chart atau gunakan tombol panah + Enter, Escape untuk
-  membatalkan draft, dan Undo untuk menghapus drawing terakhir. Koordinat disimpan
-  sebagai indeks dan nilai harga agar tetap mengikuti chart ketika ukurannya berubah.
-- Panel analyst mendukung Expand dan Fullscreen. Percakapan menggunakan respons
-  demo lokal, tanpa koneksi model AI atau feed pasar live.
-- Angka merupakan snapshot 6 September 2024 dari desain. Quote IHSG diselaraskan
-  antara ticker, workspace, dan titik chart terakhir; indikator dihitung dari
-  closing prices, bukan angka label hard-coded di ZIP.
+Buka `http://localhost:3000`. Backend diperlukan untuk data pasar dan Supabase.
+Jalankan backend dengan `BANDAR_PASAR_AI_ENABLED=false` jika hanya ingin data online
+serta penyimpanan percakapan tanpa memuat model. Chat membutuhkan model aktif.
 
 ## Pemeriksaan
 

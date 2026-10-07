@@ -14,18 +14,31 @@ const request = (body) =>
   new Request("http://localhost/api/chat", { method: "POST", body });
 
 test("proxy returns actual backend replies", async (t) => {
-  const payload = { messages: [{ role: "user", content: "Halo" }] };
+  const payload = {
+    messages: [{ role: "user", content: "Halo" }],
+    use_web: true,
+  };
+  const web = {
+    status: "ok",
+    sources: [
+      { id: 1, title: "IDX", url: "https://www.idx.co.id", snippet: "Bursa" },
+    ],
+    searched_at: "2026-10-07T06:00:00Z",
+  };
   t.mock.method(globalThis, "fetch", async (url, options) => {
     assert.ok(url.endsWith("/chat"));
     assert.deepEqual(JSON.parse(options.body), payload);
     return Response.json({
       reply: "Halo dari model",
       model: "Timothyemmanuel/Arakandar",
+      web,
     });
   });
   const response = await POST(request(JSON.stringify(payload)));
   assert.equal(response.status, 200);
-  assert.equal((await response.json()).reply, "Halo dari model");
+  const data = await response.json();
+  assert.equal(data.reply, "Halo dari model");
+  assert.deepEqual(data.web, web);
 });
 
 test("proxy rejects malformed input before calling backend", async (t) => {

@@ -31,5 +31,23 @@ export async function requestChat(payload, signal) {
   if (typeof data.reply !== "string" || !data.reply.trim()) {
     throw new Error("Model mengirim jawaban kosong. Silakan coba lagi.");
   }
-  return data.reply;
+  return {
+    reply: data.reply,
+    model: data.model,
+    web: data.web
+      ? {
+          ...data.web,
+          sources: (Array.isArray(data.web.sources)
+            ? data.web.sources
+            : []
+          ).filter((source) => {
+            try {
+              return ["http:", "https:"].includes(new URL(source.url).protocol);
+            } catch {
+              return false;
+            }
+          }),
+        }
+      : null,
+  };
 }

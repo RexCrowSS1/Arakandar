@@ -1,5 +1,5 @@
 export const runtime = "nodejs";
-export const maxDuration = 180;
+export const maxDuration = 240;
 
 export async function POST(request) {
   let payload;
@@ -29,7 +29,7 @@ export async function POST(request) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
       cache: "no-store",
-      signal: AbortSignal.any([request.signal, AbortSignal.timeout(180_000)]),
+      signal: AbortSignal.any([request.signal, AbortSignal.timeout(240_000)]),
     });
     const data = await response.json();
     if (!response.ok) {
@@ -46,7 +46,11 @@ export async function POST(request) {
     if (typeof data.reply !== "string" || !data.reply.trim()) {
       throw new Error("Empty model response");
     }
-    return Response.json({ reply: data.reply, model: data.model });
+    return Response.json({
+      reply: data.reply,
+      model: data.model,
+      web: data.web,
+    });
   } catch (error) {
     const timeout = error.name === "TimeoutError";
     return Response.json(

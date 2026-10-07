@@ -1,21 +1,27 @@
 "use client";
 
-import { useState, useRef, useEffect, createContext, useContext } from "react";
-import { buildChatMessages, requestChat } from "./chat-client.mjs";
 import {
-  TICKERS,
-  HISTORY_ITEMS,
-  SEARCH_RESULTS,
-  SECTORS,
-  TOP_GAINERS,
-  TOP_LOSERS,
-  BUY_BROKERS,
-  SELL_BROKERS,
-  NEWS,
-  MARKET_CHART_DATA,
-  CANDLES,
-  RSI_PTS,
-} from "./data";
+  useState,
+  useRef,
+  useEffect,
+  useMemo,
+  createContext,
+  useContext,
+} from "react";
+import { useConversations } from "./use-conversations";
+import { useMarketResource } from "./use-market.mjs";
+import {
+  TICKER_CATALOG,
+  SECTOR_CATALOG,
+  fmt,
+  pct,
+  dateLabel,
+  feedLabel,
+  axisLabels,
+  technicalSeries,
+  priceDomain,
+  linePath,
+} from "./market-data.mjs";
 const GROTESK = "var(--font-barlow-condensed), sans-serif";
 const MONO = "var(--font-jetbrains), monospace";
 // ─── THEME ────────────────────────────────────────────────────────────────────
@@ -57,19 +63,18 @@ const Ctx = createContext({});
 const useApp = () => useContext(Ctx);
 // ─── UTIL ─────────────────────────────────────────────────────────────────────
 function lineChartPath(pts, W, H, px, py) {
-  const mn = Math.min(...pts) - 20,
-    mx = Math.max(...pts) + 20;
-  const xs = (W - px * 2) / (pts.length - 1);
-  const cs = pts.map((p, i) => ({
-    x: px + i * xs,
-    y: py + ((mx - p) / (mx - mn)) * (H - py * 2),
-  }));
-  const line = cs
-    .map((c, i) => `${i === 0 ? "M" : "L"}${c.x.toFixed(1)},${c.y.toFixed(1)}`)
-    .join(" ");
-  const area =
-    line + ` L${cs.at(-1).x.toFixed(1)},${H - py} L${px},${H - py} Z`;
-  return { line, area, last: cs.at(-1) };
+  const { min, max } = priceDomain(pts);
+  const toX = (i) => px + (i * (W - px * 2)) / Math.max(1, pts.length - 1);
+  const toY = (v) => py + ((max - v) / (max - min)) * (H - py * 2);
+  const line = linePath(pts, toX, toY);
+  const last = pts.length
+    ? { x: toX(pts.length - 1), y: toY(pts.at(-1)) }
+    : null;
+  return {
+    line,
+    area: last ? `${line} L${last.x},${H - py} L${px},${H - py} Z` : "",
+    last,
+  };
 }
 // ─── LOGO ─────────────────────────────────────────────────────────────────────
 function LogoMark({ size = 24 }) {
@@ -384,7 +389,22 @@ function GhostBtn({ children, onClick, active, style }) {
 }
 // ─── TOP TICKER ───────────────────────────────────────────────────────────────
 function TopTicker({ onTickerClick, activeTicker }) {
-  const { t } = useApp();
+  const { t, overview } = useApp();
+  const TICKERS = TICKER_CATALOG.map((item) => {
+    const quote = overview.quotes?.[item.id];
+    return {
+      ...item,
+      value: fmt(quote?.price),
+      change: pct(quote?.change_percent),
+      up: quote?.change_percent >= 0,
+      available: Number.isFinite(quote?.price),
+      status: feedLabel(
+        overview.status === "stale"
+          ? { ...quote, status: "stale" }
+          : quote || overview,
+      ),
+    };
+  });
   const [paused, setPaused] = useState(false);
   const [fast, setFast] = useState(false);
   return (
@@ -397,12 +417,21 @@ function TopTicker({ onTickerClick, activeTicker }) {
       }}
     >
       <div className="market-strip-label" style={{ color: t.orange }}>
-        LIVE MARKETS <small>DEMO</small>
+        MARKETS{" "}
+        <small>
+          {overview.status === "stale"
+            ? "STALE"
+            : overview.status === "loading"
+              ? "LOADING"
+              : overview.status === "unavailable"
+                ? "OFFLINE"
+                : "DELAYED"}
+        </small>
       </div>
       <div
         className="market-strip-viewport"
         role="region"
-        aria-label="Market quotes demo"
+        aria-label="Market quotes · data tertunda sesuai bursa"
       >
         <div
           className="market-strip-track"
@@ -423,7 +452,7 @@ function TopTicker({ onTickerClick, activeTicker }) {
                   type="button"
                   tabIndex={copy === 1 ? -1 : 0}
                   aria-pressed={activeTicker === tk.id}
-                  title={`Analyze ${tk.label} · demo quote`}
+                  title={`Analyze ${tk.label} · ${tk.status}`}
                   onClick={() => onTickerClick(tk.id)}
                   className="market-strip-quote"
                   style={{
@@ -441,7 +470,7 @@ function TopTicker({ onTickerClick, activeTicker }) {
                   </span>
                   <strong>{tk.value}</strong>
                   <span style={{ color: tk.up ? t.pos : t.neg }}>
-                    {tk.up ? "▲" : "▼"} {tk.change}
+                    {tk.available ? (tk.up ? "▲" : "▼") : ""} {tk.change}
                   </span>
                 </button>
               ))}
@@ -479,7 +508,7 @@ function Sidebar({
   onNewConv,
   onHistoryClick,
   activeHistId,
-  setActiveHistId,
+  history,
 }) {
   const { t } = useApp();
   const [search, setSearch] = useState("");
@@ -498,8 +527,7 @@ function Sidebar({
   };
   const results =
     search.trim().length > 0
-      ? SEARCH_RESULTS[search.toUpperCase()] ||
-        HISTORY_ITEMS.filter((h) =>
+      ? history.filter((h) =>
           h.title.toLowerCase().includes(search.toLowerCase()),
         )
       : [];
@@ -614,10 +642,7 @@ function Sidebar({
                   <div
                     key={i}
                     onClick={() => {
-                      onHistoryClick({
-                        title: "title" in r ? r.title : r.title,
-                        ticker: "ticker" in r ? r.ticker : "IHSG",
-                      });
+                      onHistoryClick(r);
                       setSearch("");
                     }}
                     className="flex items-center gap-2 px-3 py-2 cursor-pointer"
@@ -663,15 +688,12 @@ function Sidebar({
             >
               RECENT
             </Lbl>
-            {HISTORY_ITEMS.map((item) => (
+            {history.map((item) => (
               <HistRow
                 key={item.id}
                 item={item}
                 active={activeHistId === item.id}
-                onClick={() => {
-                  setActiveHistId(item.id);
-                  onHistoryClick(item);
-                }}
+                onClick={() => onHistoryClick(item)}
               />
             ))}
           </div>
@@ -806,7 +828,7 @@ function ProfileSection({
   settingsOpen,
   setSet,
 }) {
-  const { t, mode } = useApp();
+  const { t, mode, user } = useApp();
   return (
     <div
       className="flex-shrink-0 relative"
@@ -858,10 +880,10 @@ function ProfileSection({
             PERSONAL INFORMATION
           </Lbl>
           {[
-            { label: "Name: Rafif Pratama" },
-            { label: "Email: rafif@email.com" },
-            { label: "Username: rafif_p" },
-            { label: "Account: Free" },
+            { label: `Name: ${user?.name || "Admin"}` },
+            { label: `Email: ${user?.email || "admin@bandarpasar.local"}` },
+            { label: "Username: admin" },
+            { label: "Account: Shared Admin" },
           ].map((r) => (
             <div
               key={r.label}
@@ -946,12 +968,12 @@ function ProfileSection({
             fontWeight: 700,
           }}
         >
-          R
+          {(user?.name || "Admin").slice(0, 1)}
         </div>
         {!collapsed && (
           <div className="flex-1 text-left min-w-0">
             <div style={{ fontFamily: MONO, fontSize: "10px", color: t.text }}>
-              Rafif Pratama
+              {user?.name || "Admin"}
             </div>
             <div
               style={{
@@ -961,7 +983,7 @@ function ProfileSection({
                 marginTop: "1px",
               }}
             >
-              rafif@email.com
+              {user?.email || "admin@bandarpasar.local"}
             </div>
           </div>
         )}
@@ -1080,22 +1102,22 @@ function AuthModal({ mode, onClose }) {
 }
 // ─── MARKET CHART ─────────────────────────────────────────────────────────────
 function MarketChart({ tf }) {
-  const { t } = useApp();
-  const pts = MARKET_CHART_DATA[tf] || MARKET_CHART_DATA["1D"];
+  const { t, chart } = useApp();
+  const bars = chart.bars || [];
+  const pts = bars.map((bar) => bar.close);
   const W = 860,
     H = 200,
     PX = 48,
     PY = 12;
   const { line, area, last } = lineChartPath(pts, W, H, PX, PY);
-  const mn = Math.min(...pts),
-    mx = Math.max(...pts);
-  const ylabels = [mx, mn + (mx - mn) * 0.67, mn + (mx - mn) * 0.33, mn].map(
-    (v) => v.toFixed(0).replace(/\B(?=(\d{3})+(?!\d))/g, ","),
-  );
-  const xlabels =
-    tf === "1D"
-      ? ["09:00", "11:00", "13:00", "15:00"]
-      : ["W1", "W2", "W3", "W4"];
+  const { min: mn, max: mx } = priceDomain(pts);
+  const ylabels = bars.length
+    ? [mx, mn + (mx - mn) * 0.67, mn + (mx - mn) * 0.33, mn].map((v) =>
+        fmt(v, 0),
+      )
+    : [];
+  const xlabels = axisLabels(bars, chart.timezone, tf === "1D");
+  const maxVolume = Math.max(1, ...bars.map((bar) => bar.volume || 0));
   return (
     <svg
       width="100%"
@@ -1146,9 +1168,8 @@ function MarketChart({ tf }) {
       />
       {/* Volume bars */}
       {pts.map((p, i) => {
-        const x = PX + (i * (W - PX * 2)) / (pts.length - 1);
-        const barH =
-          (Math.abs(Math.sin(i * 1.3)) * 0.15 + 0.05) * (H - PY * 2) * 0.18;
+        const x = PX + (i * (W - PX * 2)) / Math.max(1, pts.length - 1);
+        const barH = ((bars[i].volume || 0) / maxVolume) * (H - PY * 2) * 0.18;
         return (
           <rect
             key={i}
@@ -1161,26 +1182,42 @@ function MarketChart({ tf }) {
           />
         );
       })}
-      <line
-        x1={last.x}
-        x2={last.x}
-        y1={PY}
-        y2={H - PY}
-        stroke={t.orange}
-        strokeWidth="1"
-        strokeDasharray="2,3"
-        strokeOpacity="0.5"
-      />
-      <rect
-        x={last.x - 2}
-        y={last.y - 2}
-        width="4"
-        height="4"
-        fill={t.orange}
-      />
+      {last && (
+        <g>
+          <line
+            x1={last.x}
+            x2={last.x}
+            y1={PY}
+            y2={H - PY}
+            stroke={t.orange}
+            strokeWidth="1"
+            strokeDasharray="2,3"
+            strokeOpacity="0.5"
+          />
+          <rect
+            x={last.x - 2}
+            y={last.y - 2}
+            width="4"
+            height="4"
+            fill={t.orange}
+          />
+        </g>
+      )}
+      {!bars.length && (
+        <text
+          x={W / 2}
+          y={H / 2}
+          textAnchor="middle"
+          fill={t.textSec}
+          fontSize="11"
+          fontFamily={MONO}
+        >
+          {feedLabel(chart)}
+        </text>
+      )}
       {xlabels.map((lbl, i) => (
         <text
-          key={lbl}
+          key={i}
           x={PX + (i / (xlabels.length - 1)) * (W - PX * 2)}
           y={H - 1}
           textAnchor="middle"
@@ -1196,7 +1233,6 @@ function MarketChart({ tf }) {
 }
 // ─── CANDLESTICK CHART ────────────────────────────────────────────────────────
 function CandleChart({
-  showRSI,
   annotations,
   pendingAnnotation,
   drawTool,
@@ -1204,28 +1240,44 @@ function CandleChart({
   onMouseMove,
   onMouseUp,
 }) {
-  const { t, mode } = useApp();
+  const { t, chart, indicators, series } = useApp();
+  const bars = (chart.bars || []).slice(-120);
+  const candles = bars.map((bar) => [bar.open, bar.high, bar.low, bar.close]);
+  const oscillators = ["RSI", "MACD", "STOCHASTIC"].filter((name) =>
+    indicators.has(name),
+  );
+  // Keep the original SVG height while fitting the selected indicator panels inside it.
+  const totalH = indicators.has("RSI") ? 279 : 260;
+  const panelH = oscillators.length === 1 ? 79 : 60;
   const W = 860,
-    mainH = showRSI ? 200 : 260,
-    rsiH = 65,
+    mainH = totalH - oscillators.length * panelH,
+    rsiH = panelH - 14,
     PX = 50,
     PY = 12;
-  const totalH = mainH + (showRSI ? rsiH + 14 : 0);
-  const prices = CANDLES.flatMap((c) => [c[1], c[2]]);
-  const mn = Math.min(...prices) - 40,
-    mx = Math.max(...prices) + 40;
+  const overlays = [
+    ...(indicators.has("MA") ? [["MA20", series.MA, t.orange]] : []),
+    ...(indicators.has("EMA") ? [["EMA20", series.EMA, t.pos]] : []),
+    ...(indicators.has("BOLLINGER")
+      ? [
+          ["BB upper", series.upper, t.textSec],
+          ["BB lower", series.lower, t.textSec],
+        ]
+      : []),
+    ...(indicators.has("VWAP") ? [["VWAP", series.VWAP, t.neg]] : []),
+  ];
+  const prices = [
+    ...candles.flatMap((c) => [c[1], c[2]]),
+    ...overlays.flatMap(([, values]) => values.slice(-120)),
+  ];
+  const { min: mn, max: mx } = priceDomain(prices);
   const toY = (p) => PY + ((mx - p) / (mx - mn)) * (mainH - PY * 2);
-  const cW = (W - PX * 2) / CANDLES.length,
+  const cW = (W - PX * 2) / Math.max(1, candles.length),
     bodyW = cW * 0.55;
-  const ylabels = [9900, 9800, 9700];
-  const rsiMn = 25,
-    rsiMx = 80;
-  const rsiToY = (v) =>
-    mainH + 14 + PY / 2 + ((rsiMx - v) / (rsiMx - rsiMn)) * (rsiH - PY);
-  const rsiPath = RSI_PTS.map((v, i) => {
-    const x = PX + (i / (RSI_PTS.length - 1)) * (W - PX * 2);
-    return `${i === 0 ? "M" : "L"}${x.toFixed(1)},${rsiToY(v).toFixed(1)}`;
-  }).join(" ");
+  const toX = (i) => PX + (i + 0.5) * cW;
+  const ylabels = bars.length
+    ? [0.2, 0.5, 0.8].map((f) => mn + f * (mx - mn))
+    : [];
+  const maxVolume = Math.max(1, ...bars.map((bar) => bar.volume || 0));
   const cursor = drawTool === "cursor" ? "default" : "crosshair";
   const renderAnnotation = (ann, opacity = 1) => {
     const col =
@@ -1428,11 +1480,11 @@ function CandleChart({
             fontSize="8.5"
             fontFamily={MONO}
           >
-            {v.toLocaleString()}
+            {fmt(v, 0)}
           </text>
         </g>
       ))}
-      {CANDLES.map(([o, h, l, c], i) => {
+      {candles.map(([o, h, l, c], i) => {
         const bull = c >= o,
           color = bull ? t.pos : t.neg;
         const cx = PX + (i + 0.5) * cW;
@@ -1459,9 +1511,63 @@ function CandleChart({
           </g>
         );
       })}
-      {["09:00", "10:30", "12:00", "13:30", "15:00"].map((lbl, i) => (
+      {overlays.map(([name, values, color]) => (
+        <path
+          key={name}
+          d={linePath(values.slice(-120), toX, toY)}
+          stroke={color}
+          strokeWidth="1.2"
+          fill="none"
+        >
+          <title>{name}</title>
+        </path>
+      ))}
+      {indicators.has("VOLUME") &&
+        bars.map((bar, i) => (
+          <rect
+            key={bar.time}
+            x={toX(i) - bodyW / 2}
+            y={mainH - PY - ((bar.volume || 0) / maxVolume) * 30}
+            width={bodyW}
+            height={((bar.volume || 0) / maxVolume) * 30}
+            fill={bar.close >= bar.open ? t.pos : t.neg}
+            opacity="0.25"
+          >
+            <title>Volume: {fmt(bar.volume, 0)}</title>
+          </rect>
+        ))}
+      {!bars.length && (
         <text
-          key={lbl}
+          x={W / 2}
+          y={mainH / 2}
+          textAnchor="middle"
+          fill={t.textSec}
+          fontSize="11"
+          fontFamily={MONO}
+        >
+          {feedLabel(chart)}
+        </text>
+      )}
+      {bars.length > 0 && (
+        <text x={PX} y={10} fill={t.textSec} fontSize="8" fontFamily={MONO}>
+          {overlays
+            .map(([name, values]) => `${name}: ${fmt(values.at(-1))}`)
+            .join(" · ")}
+          {indicators.has("VWAP") &&
+          !chart.interval?.endsWith("m") &&
+          chart.interval !== "4h"
+            ? " · VWAP hanya intraday"
+            : ""}
+        </text>
+      )}
+      {axisLabels(
+        bars,
+        chart.timezone,
+        ["1m", "5m", "15m", "30m", "60m", "4h"].includes(chart.interval),
+        5,
+      ).map((lbl, i) => (
+        <text
+          key={i}
           x={PX + (i / 4) * (W - PX * 2)}
           y={mainH - 2}
           textAnchor="middle"
@@ -1475,82 +1581,112 @@ function CandleChart({
       {/* Annotations */}
       {annotations.map((ann) => renderAnnotation(ann))}
       {pendingAnnotation && renderAnnotation(pendingAnnotation, 0.5)}
-      {/* RSI */}
-      {showRSI && (
-        <g>
-          <line
-            x1={PX}
-            x2={W - PX}
-            y1={mainH + 14}
-            y2={mainH + 14}
-            stroke={t.border}
-            strokeWidth="1"
-          />
-          <text
-            x={PX}
-            y={mainH + 12}
-            fill={t.textMut}
-            fontSize="8"
-            fontFamily={MONO}
-          >
-            RSI(14)
-          </text>
-          <line
-            x1={PX}
-            x2={W - PX}
-            y1={rsiToY(70)}
-            y2={rsiToY(70)}
-            stroke={t.neg}
-            strokeWidth="1"
-            strokeOpacity="0.3"
-            strokeDasharray="2,4"
-          />
-          <line
-            x1={PX}
-            x2={W - PX}
-            y1={rsiToY(30)}
-            y2={rsiToY(30)}
-            stroke={t.pos}
-            strokeWidth="1"
-            strokeOpacity="0.3"
-            strokeDasharray="2,4"
-          />
-          <text
-            x={W - PX + 2}
-            y={rsiToY(70) + 3}
-            fill={t.neg}
-            fontSize="7.5"
-            fontFamily={MONO}
-            opacity="0.7"
-          >
-            70
-          </text>
-          <text
-            x={W - PX + 2}
-            y={rsiToY(30) + 3}
-            fill={t.pos}
-            fontSize="7.5"
-            fontFamily={MONO}
-            opacity="0.7"
-          >
-            30
-          </text>
-          <path
-            d={rsiPath}
-            stroke={t.orange}
-            strokeWidth="1.5"
-            fill="none"
-            strokeLinecap="round"
-          />
-        </g>
-      )}
+      {oscillators.map((name, index) => {
+        const values = (
+          name === "MACD" ? series.MACD.line : series[name]
+        ).slice(-120);
+        const signal = name === "MACD" ? series.MACD.signal.slice(-120) : [];
+        const domain =
+          name === "MACD"
+            ? priceDomain([...values, ...signal, 0])
+            : { min: 0, max: 100 };
+        const top = mainH + index * (rsiH + 14) + 14;
+        const toOscY = (v) =>
+          top +
+          PY / 2 +
+          ((domain.max - v) / (domain.max - domain.min)) * (rsiH - PY);
+        const thresholds =
+          name === "MACD" ? [0] : name === "RSI" ? [30, 70] : [20, 80];
+        return (
+          <g key={name}>
+            <line
+              x1={PX}
+              x2={W - PX}
+              y1={top}
+              y2={top}
+              stroke={t.border}
+              strokeWidth="1"
+            />
+            <text
+              x={PX}
+              y={top - 2}
+              fill={t.textMut}
+              fontSize="8"
+              fontFamily={MONO}
+            >
+              {name === "MACD" ? "MACD(12,26,9)" : `${name}(14)`}{" "}
+              {fmt(values.at(-1))}
+              {name === "MACD" ? ` · Signal ${fmt(signal.at(-1))}` : ""}
+            </text>
+            {thresholds.map((v) => (
+              <g key={v}>
+                <line
+                  x1={PX}
+                  x2={W - PX}
+                  y1={toOscY(v)}
+                  y2={toOscY(v)}
+                  stroke={t.textMut}
+                  strokeDasharray="2,4"
+                />
+                <text
+                  x={W - PX + 2}
+                  y={toOscY(v) + 3}
+                  fill={t.textMut}
+                  fontSize="7.5"
+                  fontFamily={MONO}
+                >
+                  {v}
+                </text>
+              </g>
+            ))}
+            <path
+              d={linePath(values, toX, toOscY)}
+              stroke={t.orange}
+              strokeWidth="1.5"
+              fill="none"
+            />
+            {name === "MACD" && (
+              <path
+                d={linePath(signal, toX, toOscY)}
+                stroke={t.pos}
+                strokeWidth="1.2"
+                fill="none"
+              />
+            )}
+          </g>
+        );
+      })}
     </svg>
   );
 }
 // ─── MARKET WORKSPACE ─────────────────────────────────────────────────────────
 function MarketWorkspace({ onManualAnalysis, setAiQ }) {
-  const { t, activeTicker, mode } = useApp();
-  const [tf, setTf] = useState("1D");
+  const {
+    t,
+    activeTicker,
+    marketTf: tf,
+    setMarketTf: setTf,
+    chart,
+    overview,
+    news,
+  } = useApp();
+  const quote = chart.quote || {};
+  const breadth = overview.breadth || {};
+  const SECTORS = SECTOR_CATALOG.map((sector) => ({
+    ...sector,
+    pct: overview.quotes?.[sector.ticker]?.change_percent,
+  }));
+  const TOP_GAINERS = overview.gainers || [];
+  const TOP_LOSERS = overview.losers || [];
+  const BUY_BROKERS = [{ code: "Feed IDX diperlukan", val: "—" }];
+  const SELL_BROKERS = BUY_BROKERS;
+  const NEWS = (news.sources || []).map((source) => ({
+    category: source.source || "NEWS",
+    time: dateLabel(source.published_at),
+    headline: source.title,
+    body: source.snippet,
+    url: source.url,
+  }));
   const [openNews, setOpenNews] = useState(null);
   const [selBroker, setSelBroker] = useState(null);
   const [selSector, setSelSector] = useState(null);
@@ -1616,7 +1752,9 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
         {/* Market header */}
         <div className="flex items-baseline gap-4 mb-3">
           <div>
-            <Lbl>IHSG — JAKARTA COMPOSITE INDEX</Lbl>
+            <Lbl>
+              {activeTicker} — {quote.name || activeTicker}
+            </Lbl>
             <div className="flex items-baseline gap-3 mt-1">
               <span
                 style={{
@@ -1627,12 +1765,12 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                   letterSpacing: "-0.01em",
                 }}
               >
-                7,245.32
+                {fmt(quote.price)}
               </span>
               <span
                 style={{ fontFamily: MONO, fontSize: "12px", color: t.pos }}
               >
-                ▲ +0.82%
+                {pct(quote.change_percent)}
               </span>
               <span
                 style={{
@@ -1643,7 +1781,11 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                   padding: "1px 6px",
                 }}
               >
-                LIVE
+                {quote.status === "ok"
+                  ? "DELAYED"
+                  : quote.status === "stale"
+                    ? "STALE"
+                    : "—"}
               </span>
             </div>
           </div>
@@ -1683,7 +1825,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
           className="flex justify-between px-1 pb-3"
           style={{ borderBottom: `1px solid ${t.border}` }}
         >
-          <Lbl>LAST UPDATE / 15:42 WIB · STATIC DEMO DATA</Lbl>
+          <Lbl>{feedLabel(chart)} · auto-refresh 60s</Lbl>
         </div>
 
         {/* Two column data grid */}
@@ -1697,24 +1839,36 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
             style={{ borderRight: `1px solid ${t.border}` }}
           >
             {[
-              { k: "Current", v: "7,245.32", pos: true },
-              { k: "Change", v: "+59.43", pos: true },
-              { k: "Change %", v: "+0.82%", pos: true },
-              { k: "Volume", v: "18.4B shrs", pos: null },
-              { k: "Value", v: "11.2T", pos: null },
-              { k: "Frequency", v: "1.28M trades", pos: null },
+              {
+                k: `Current (${quote.currency || "—"})`,
+                v: fmt(quote.price),
+                pos: null,
+              },
+              {
+                k: "Change",
+                v: fmt(quote.change),
+                pos: Number.isFinite(quote.change) ? quote.change >= 0 : null,
+              },
+              {
+                k: "Change %",
+                v: pct(quote.change_percent),
+                pos: Number.isFinite(quote.change) ? quote.change >= 0 : null,
+              },
+              { k: "Volume", v: fmt(quote.volume, 0), pos: null },
+              { k: "Value (feed IDX)", v: "—", pos: null },
+              { k: "Frequency (feed IDX)", v: "—", pos: null },
             ].map((r) => (
               <DataRow key={r.k} label={r.k} value={r.v} pos={r.pos} />
             ))}
           </DataSection>
 
           {/* Flow */}
-          <DataSection title="FUND FLOW">
+          <DataSection title="FUND FLOW · FEED IDX DIPERLUKAN">
             <Lbl style={{ display: "block", marginBottom: "4px" }}>FOREIGN</Lbl>
             {[
-              { k: "Buy", v: "8.42T", pos: true },
-              { k: "Sell", v: "7.16T", pos: false },
-              { k: "Net", v: "+1.26T", pos: true },
+              { k: "Buy", v: "—", pos: true },
+              { k: "Sell", v: "—", pos: false },
+              { k: "Net", v: "—", pos: true },
             ].map((r) => (
               <DataRow key={r.k} label={r.k} value={r.v} pos={r.pos} />
             ))}
@@ -1728,9 +1882,9 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
               DOMESTIC
             </Lbl>
             {[
-              { k: "Buy", v: "12.4T", pos: true },
-              { k: "Sell", v: "11.8T", pos: false },
-              { k: "Net", v: "+0.6T", pos: true },
+              { k: "Buy", v: "—", pos: true },
+              { k: "Sell", v: "—", pos: false },
+              { k: "Net", v: "—", pos: true },
             ].map((r) => (
               <DataRow key={r.k} label={r.k} value={r.v} pos={r.pos} />
             ))}
@@ -1752,7 +1906,9 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 key={b.code}
                 onClick={() => {
                   setSelBroker(b.code);
-                  setAiQ(`Analyze broker ${b.code} activity`);
+                  setAiQ(
+                    "Data broker summary belum tersedia. Data apa yang diperlukan untuk analisis broker?",
+                  );
                 }}
                 className="flex justify-between py-1 cursor-pointer px-1"
                 style={{
@@ -1797,7 +1953,9 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 key={b.code}
                 onClick={() => {
                   setSelBroker(b.code);
-                  setAiQ(`Analyze broker ${b.code} activity`);
+                  setAiQ(
+                    "Data broker summary belum tersedia. Data apa yang diperlukan untuk analisis broker?",
+                  );
                 }}
                 className="flex justify-between py-1 cursor-pointer px-1"
                 style={{
@@ -1831,13 +1989,15 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
           </DataSection>
 
           {/* Market Breadth */}
-          <DataSection title="MARKET BREADTH">
+          <DataSection
+            title={`BREADTH · WATCHLIST ${breadth.available ?? 0}/${breadth.total ?? 9}${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARSIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
+          >
             {[
-              { k: "Advancing", v: "248", pos: true },
-              { k: "Declining", v: "182", pos: false },
-              { k: "Unchanged", v: "96", pos: null },
-              { k: "New High", v: "32", pos: true },
-              { k: "New Low", v: "18", pos: false },
+              { k: "Advancing", v: fmt(breadth.advancing, 0), pos: true },
+              { k: "Declining", v: fmt(breadth.declining, 0), pos: false },
+              { k: "Unchanged", v: fmt(breadth.unchanged, 0), pos: null },
+              { k: "New High", v: "—", pos: true },
+              { k: "New Low", v: "—", pos: false },
             ].map((r) => (
               <DataRow key={r.k} label={r.k} value={r.v} pos={r.pos} />
             ))}
@@ -1845,9 +2005,18 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
               className="flex mt-3"
               style={{ height: "4px", borderRadius: "0" }}
             >
-              <div style={{ flex: 248, backgroundColor: t.pos }} />
-              <div style={{ flex: 96, backgroundColor: t.textMut + "55" }} />
-              <div style={{ flex: 182, backgroundColor: t.neg }} />
+              <div
+                style={{ flex: breadth.advancing || 0, backgroundColor: t.pos }}
+              />
+              <div
+                style={{
+                  flex: breadth.unchanged || 0,
+                  backgroundColor: t.textMut + "55",
+                }}
+              />
+              <div
+                style={{ flex: breadth.declining || 0, backgroundColor: t.neg }}
+              />
             </div>
           </DataSection>
         </div>
@@ -1858,7 +2027,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
         >
           {/* Sectors */}
           <DataSection
-            title="SECTOR PERFORMANCE"
+            title={`SECTOR PERFORMANCE${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARSIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
             style={{ borderRight: `1px solid ${t.border}` }}
           >
             {SECTORS.map((s) => (
@@ -1866,6 +2035,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 key={s.label}
                 onClick={() => {
                   setSelSector(s.label);
+                  setActiveTicker(s.ticker);
                   setAiQ(`Analyze ${s.label} sector`);
                 }}
                 className="flex items-center gap-2 py-1 cursor-pointer px-1"
@@ -1896,7 +2066,9 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                     width: "50px",
                     height: "2px",
                     backgroundColor: s.pct > 0 ? t.pos : t.neg,
-                    opacity: Math.abs(s.pct) / 2,
+                    opacity: Number.isFinite(s.pct)
+                      ? Math.min(1, Math.abs(s.pct) / 2)
+                      : 0,
                   }}
                 />
                 <span
@@ -1908,16 +2080,24 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                     textAlign: "right",
                   }}
                 >
-                  {s.pct > 0 ? "+" : ""}
-                  {s.pct.toFixed(2)}%
+                  {pct(s.pct)}
                 </span>
               </div>
             ))}
           </DataSection>
 
           {/* Top movers */}
-          <DataSection title="TOP MOVERS">
+          <DataSection
+            title={`TOP MOVERS · WATCHLIST 9${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARSIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
+          >
             <Lbl style={{ display: "block", marginBottom: "4px" }}>GAINERS</Lbl>
+            {!TOP_GAINERS.length && (
+              <Lbl>
+                {overview.status === "loading"
+                  ? "Memuat…"
+                  : "Tidak ada data kenaikan tersedia"}
+              </Lbl>
+            )}
             {TOP_GAINERS.map((m) => (
               <div
                 key={m.ticker}
@@ -1951,7 +2131,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 <span
                   style={{ fontFamily: MONO, fontSize: "10px", color: t.pos }}
                 >
-                  {m.pct}
+                  {pct(m.change_percent)}
                 </span>
               </div>
             ))}
@@ -1964,6 +2144,13 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
             >
               LOSERS
             </Lbl>
+            {!TOP_LOSERS.length && (
+              <Lbl>
+                {overview.status === "loading"
+                  ? "Memuat…"
+                  : "Tidak ada data penurunan tersedia"}
+              </Lbl>
+            )}
             {TOP_LOSERS.map((m) => (
               <div
                 key={m.ticker}
@@ -1997,7 +2184,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 <span
                   style={{ fontFamily: MONO, fontSize: "10px", color: t.neg }}
                 >
-                  {m.pct}
+                  {pct(m.change_percent)}
                 </span>
               </div>
             ))}
@@ -2005,7 +2192,16 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
         </div>
 
         {/* Latest news */}
-        <DataSection title="LATEST NEWS">
+        <DataSection
+          title={`LATEST NEWS · ${activeTicker}${news.status === "stale" ? " · STALE" : ""}`}
+        >
+          {!NEWS.length && (
+            <Lbl>
+              {news.status === "loading"
+                ? "Memuat berita…"
+                : "Berita belum tersedia"}
+            </Lbl>
+          )}
           {NEWS.map((n, i) => (
             <div key={i}>
               <div
@@ -2072,7 +2268,12 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                       lineHeight: "1.6",
                     }}
                   >
-                    {n.body}
+                    {n.body}{" "}
+                    {n.url && (
+                      <a href={n.url} target="_blank" rel="noreferrer">
+                        Baca sumber ↗
+                      </a>
+                    )}
                   </p>
                 </div>
               )}
@@ -2139,19 +2340,24 @@ const DRAW_TOOLS = [
   ["measure", Ico.Measure],
 ];
 function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
-  const { t } = useApp();
-  const [ticker, setTicker] = useState("BBCA");
+  const {
+    t,
+    technicalTicker: ticker,
+    setTechnicalTicker: setTicker,
+    technicalTf: tf,
+    setTechnicalTf: setTf,
+    indicators,
+    setIndicators,
+    chart,
+  } = useApp();
   const [tickerOpen, setTickerOpen] = useState(false);
-  const [tf, setTf] = useState("1D");
-  const [indicators, setIndicators] = useState(new Set(["RSI", "MACD"]));
+  const lastBar = chart.bars?.at(-1);
   const [drawTool, setDrawTool] = useState("cursor");
   const [annotations, setAnnotations] = useState([]);
   const [pending, setPending] = useState(null);
   const [drawStart, setDrawStart] = useState(null);
   const [notes, setNotes] = useState("");
-  const svgRef = useRef(null);
-  const VW = 860,
-    VH = indicators.has("RSI") ? 265 : 330;
+  const VW = 860;
   const togInd = (k) => {
     setIndicators((prev) => {
       const n = new Set(prev);
@@ -2164,7 +2370,9 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
     const rect = e.currentTarget.getBoundingClientRect();
     return {
       x: ((e.clientX - rect.left) / rect.width) * VW,
-      y: ((e.clientY - rect.top) / rect.height) * VH,
+      y:
+        ((e.clientY - rect.top) / rect.height) *
+        e.currentTarget.viewBox.baseVal.height,
     };
   };
   const onMouseDown = (e) => {
@@ -2322,6 +2530,8 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
                     key={tk}
                     onClick={() => {
                       setTicker(tk);
+                      setAnnotations([]);
+                      setPending(null);
                       setTickerOpen(false);
                       setAiQ(`Analyze ${tk}`);
                     }}
@@ -2355,6 +2565,8 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
                   key={f}
                   onClick={() => {
                     setTf(f);
+                    setAnnotations([]);
+                    setPending(null);
                     setAiQ(`Analyze ${ticker} ${f} chart`);
                   }}
                   style={{
@@ -2449,10 +2661,10 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
                   {ticker} / {tf}
                 </span>
                 {[
-                  ["O", "9,862"],
-                  ["H", "9,910"],
-                  ["L", "9,840"],
-                  ["C", "9,875"],
+                  ["O", fmt(lastBar?.open)],
+                  ["H", fmt(lastBar?.high)],
+                  ["L", fmt(lastBar?.low)],
+                  ["C", fmt(lastBar?.close)],
                 ].map(([k, v]) => (
                   <span key={k} style={{ fontFamily: MONO, fontSize: "10px" }}>
                     <span style={{ color: t.textMut }}>{k} </span>
@@ -2474,11 +2686,16 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
                     backgroundColor: t.pos,
                   }}
                 />
-                <Lbl>MARKET OPEN</Lbl>
+                <Lbl>
+                  {chart.quote?.session === "REGULAR"
+                    ? "SESI REGULER · DELAYED"
+                    : chart.quote?.session === "CLOSED"
+                      ? "MARKET CLOSED"
+                      : "STATUS —"}
+                </Lbl>
               </div>
             </div>
             <CandleChart
-              showRSI={indicators.has("RSI")}
               annotations={annotations}
               pendingAnnotation={pending}
               drawTool={drawTool}
@@ -2491,7 +2708,7 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
               style={{ borderTop: `1px solid ${t.border}` }}
             >
               <Lbl>
-                LAST UPDATE / 15:42 WIB · DEMO DATA ·{" "}
+                {feedLabel(chart)} ·{" "}
                 {DRAW_TOOLS.find(([t]) => t === drawTool)?.[0]?.toUpperCase()}
               </Lbl>
             </div>
@@ -2549,9 +2766,13 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
             <Lbl accent style={{ display: "block", marginBottom: "8px" }}>
               PERSONAL INTELLIGENCE
             </Lbl>
-            <DataRow label="Preferred TF" value="1D" pos={null} />
-            <DataRow label="Watchlist" value="BBCA · BBRI · TLKM" pos={null} />
-            <DataRow label="Indicators" value="RSI · MACD · MA20" pos={null} />
+            <DataRow label="Preferred TF" value={tf} pos={null} />
+            <DataRow label="Selected ticker" value={ticker} pos={null} />
+            <DataRow
+              label="Indicators"
+              value={[...indicators].join(" · ") || "—"}
+              pos={null}
+            />
           </div>
         </div>
       </div>
@@ -2633,8 +2854,10 @@ function AIPanel({
   workspace,
   activeTicker,
   indicators,
+  useWeb,
+  setUseWeb,
 }) {
-  const { t } = useApp();
+  const { t, chart, technicalTicker, technicalTf, series, overview } = useApp();
   const [focused, setFocused] = useState(false);
   const endRef = useRef(null);
   useEffect(() => {
@@ -2645,16 +2868,25 @@ function AIPanel({
     workspace === "market"
       ? [
           { k: "TICKER", v: activeTicker },
-          { k: "IHSG", v: "7,245.32" },
-          { k: "FLOW", v: "+1.26T", pos: true },
-          { k: "BREADTH", v: "248 / 182", pos: true },
-          { k: "TOP SECTOR", v: "Financials +1.42%", pos: true },
+          { k: "PRICE", v: fmt(chart.quote?.price) },
+          { k: "CHANGE", v: pct(chart.quote?.change_percent) },
+          { k: "FLOW", v: "Feed IDX diperlukan" },
+          {
+            k: "WATCHLIST ↑ / ↓",
+            v: `${fmt(overview.breadth?.advancing, 0)} / ${fmt(overview.breadth?.declining, 0)}`,
+          },
         ]
       : [
-          { k: "TICKER", v: `BBCA / 1D` },
-          { k: "RSI", v: indicators?.has("RSI") ? "ON" : "OFF" },
-          { k: "MACD", v: indicators?.has("MACD") ? "ON" : "OFF" },
-          { k: "NOTES", v: "-" },
+          { k: "TICKER", v: `${technicalTicker} / ${technicalTf}` },
+          { k: "PRICE", v: fmt(chart.quote?.price) },
+          {
+            k: "RSI(14)",
+            v: indicators?.has("RSI") ? fmt(series.RSI.at(-1)) : "OFF",
+          },
+          {
+            k: "MACD",
+            v: indicators?.has("MACD") ? fmt(series.MACD.line.at(-1)) : "OFF",
+          },
         ];
   return (
     <div
@@ -2755,6 +2987,9 @@ function AIPanel({
         <Lbl accent style={{ display: "block", marginBottom: "6px" }}>
           {workspace === "market" ? "MARKET CONTEXT" : "TECHNICAL CONTEXT"}
         </Lbl>
+        <p style={{ fontFamily: MONO, fontSize: "9px", color: t.textSec }}>
+          {feedLabel(chart)}
+        </p>
         {ctxRows.map((r) => (
           <div key={r.k} className="flex justify-between py-0.5">
             <span
@@ -2812,7 +3047,7 @@ function AIPanel({
                     color: t.textMut,
                   }}
                 >
-                  ANALYZING...
+                  {useWeb ? "SEARCHING WEB & ANALYZING..." : "ANALYZING..."}
                 </span>
                 <div style={{ display: "flex", gap: "3px" }}>
                   {[0, 1, 2].map((d) => (
@@ -2841,6 +3076,58 @@ function AIPanel({
                 {m.text}
               </p>
             )}
+            {m.web && !m.analyzing && (
+              <div
+                style={{
+                  marginTop: "8px",
+                  fontFamily: MONO,
+                  fontSize: "9px",
+                  lineHeight: "1.6",
+                  color: t.textSec,
+                  overflowWrap: "anywhere",
+                }}
+              >
+                <p>
+                  {m.web.status === "ok"
+                    ? "Sumber pencarian web"
+                    : m.web.status === "disabled"
+                      ? "Pencarian web nonaktif"
+                      : m.web.status === "empty"
+                        ? "Tidak ada sumber web yang dapat digunakan"
+                        : "Pencarian web gagal · informasi terbaru belum terverifikasi"}
+                </p>
+                {m.web.searched_at && (
+                  <time dateTime={m.web.searched_at}>
+                    Dicari:{" "}
+                    {new Date(m.web.searched_at).toLocaleString("id-ID")}
+                  </time>
+                )}
+                {m.web.sources.map((source) => (
+                  <a
+                    key={source.id}
+                    href={source.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={source.snippet}
+                    style={{
+                      display: "block",
+                      color: t.orange,
+                      marginTop: "4px",
+                    }}
+                  >
+                    [{source.id}] {source.title} ↗
+                    {source.published_at && (
+                      <span style={{ display: "block", color: t.textSec }}>
+                        Terbit:{" "}
+                        {new Date(source.published_at).toLocaleDateString(
+                          "id-ID",
+                        )}
+                      </span>
+                    )}
+                  </a>
+                ))}
+              </div>
+            )}
           </div>
         ))}
         <div ref={endRef} />
@@ -2848,6 +3135,30 @@ function AIPanel({
 
       {/* Input */}
       <div className="flex-shrink-0 px-3 pb-3">
+        <label
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: "6px",
+            fontFamily: MONO,
+            fontSize: "10px",
+            color: t.textSec,
+            marginBottom: "4px",
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={useWeb}
+            disabled={isSending}
+            onChange={(event) => setUseWeb(event.target.checked)}
+          />
+          Cari di internet
+        </label>
+        {useWeb && (
+          <p style={{ color: t.textSec, fontSize: "9px", marginBottom: "8px" }}>
+            Pertanyaan terakhir dan ticker dikirim ke mesin pencari.
+          </p>
+        )}
         {error && (
           <p
             role="alert"
@@ -2974,86 +3285,78 @@ export default function App() {
   const [activeTicker, setActiveTicker] = useState("IHSG");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobilePanel, setMobilePanel] = useState("workspace");
-  const [activeHistId, setActiveHistId] = useState("h2");
-  const [messages, setMessages] = useState([]);
-  const messageSequence = useRef(0);
-  const pendingChat = useRef(null);
-  const [isSending, setIsSending] = useState(false);
-  const [chatError, setChatError] = useState("");
-  const [aiInput, setAiInput] = useState("");
+  const [useWeb, setUseWeb] = useState(true);
   const [aiPanelMode, setAIPanelMode] = useState("normal");
   const [aiWidth, setAiWidth] = useState(310);
-  const [indicators] = useState(new Set(["RSI", "MACD"]));
+  const [indicators, setIndicators] = useState(new Set(["RSI", "MACD"]));
+  const [marketTf, setMarketTf] = useState("1D");
+  const [technicalTf, setTechnicalTf] = useState("1D");
+  const [technicalTicker, setTechnicalTicker] = useState("BBCA");
+  const selectedTicker =
+    workspace === "technical" ? technicalTicker : activeTicker;
+  const selectedTf = workspace === "technical" ? technicalTf : marketTf;
+  const overview = useMarketResource("/api/market/overview");
+  const chart = useMarketResource(
+    `/api/market/chart?${new URLSearchParams({ ticker: selectedTicker, timeframe: selectedTf, mode: workspace })}`,
+  );
+  const news = useMarketResource(
+    `/api/market/news?ticker=${encodeURIComponent(selectedTicker)}`,
+    300_000,
+  );
+  const series = useMemo(
+    () =>
+      technicalSeries(
+        chart.bars || [],
+        chart.timezone,
+        ["1m", "5m", "15m", "30m", "60m", "4h"].includes(chart.interval),
+      ),
+    [chart.bars, chart.timezone, chart.interval],
+  );
   const t = THEME[mode];
-  // Listen for theme toggle from sidebar profile menu
   useEffect(() => {
     const handler = () => setMode((m) => (m === "dark" ? "light" : "dark"));
     window.addEventListener("toggleMode", handler);
     return () => window.removeEventListener("toggleMode", handler);
   }, []);
-  useEffect(() => () => pendingChat.current?.abort(), []);
-  const sendMessage = async (text) => {
-    const question = text.trim();
-    if (!question || pendingChat.current) return;
-    const controller = new AbortController();
-    pendingChat.current = controller;
-    const responseId = ++messageSequence.current;
-    setChatError("");
-    setIsSending(true);
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", text: question, id: `user-${responseId}` },
-      { role: "ai", text: "", analyzing: true, id: responseId },
-    ]);
-    setAiInput("");
-    try {
-      const reply = await requestChat(
-        {
-          messages: buildChatMessages(messages, question),
-          context: {
-            workspace,
-            ticker: workspace === "technical" ? "BBCA" : activeTicker,
-            indicators: workspace === "technical" ? [...indicators] : [],
-          },
-        },
-        controller.signal,
-      );
-      if (pendingChat.current !== controller) return;
-      setMessages((prev) =>
-        prev.map((message) =>
-          message.id === responseId
-            ? { role: "ai", text: reply, id: responseId }
-            : message,
-        ),
-      );
-    } catch (error) {
-      if (pendingChat.current !== controller || controller.signal.aborted)
-        return;
-      setChatError(error.message || "Model gagal menjawab. Silakan coba lagi.");
-      setMessages((prev) =>
-        prev.filter(
-          (message) =>
-            message.id !== responseId && message.id !== `user-${responseId}`,
-        ),
-      );
-      setAiInput((current) => current || question);
-    } finally {
-      if (pendingChat.current === controller) {
-        pendingChat.current = null;
-        setIsSending(false);
-      }
-    }
-  };
-  const handleTickerClick = (id) => {
-    setActiveTicker(id);
-    setMobilePanel("analyst");
-    setAIPanelMode("normal");
-    const tk = TICKERS.find((t) => t.id === id);
-    if (tk) setAiInput(`Analyze ${tk.label}`);
-  };
   const openAnalyst = () => {
     setAIPanelMode("normal");
     setMobilePanel("analyst");
+  };
+  const {
+    history,
+    user,
+    activeId: activeHistId,
+    messages,
+    draft: aiInput,
+    setDraft: setAiInput,
+    error: chatError,
+    isSending,
+    newConversation,
+    openConversation,
+    send: sendMessage,
+  } = useConversations({
+    context: {
+      workspace,
+      ticker: selectedTicker,
+      timeframe: selectedTf,
+      indicators: workspace === "technical" ? [...indicators] : [],
+    },
+    setWorkspace,
+    setActiveTicker,
+    setTechnicalTicker,
+    setTechnicalTf,
+    setMarketTf,
+    setIndicators,
+    useWeb,
+    setUseWeb,
+    openAnalyst,
+  });
+  const handleTickerClick = (id) => {
+    setActiveTicker(id);
+    openAnalyst();
+    if (workspace === "technical") setTechnicalTicker(id);
+    const tk = TICKER_CATALOG.find((t) => t.id === id);
+    if (tk) setAiInput(`Analyze ${tk.label}`);
   };
   const queueAnalysis = (question) => {
     setAiInput(question);
@@ -3066,10 +3369,6 @@ export default function App() {
         ? "workspace"
         : "analyst",
     );
-  };
-  const handleHistoryClick = (item) => {
-    setActiveTicker(item.ticker);
-    queueAnalysis(`Analyze ${item.ticker}`);
   };
   const onResizeStart = (e) => {
     e.preventDefault();
@@ -3087,6 +3386,19 @@ export default function App() {
     window.addEventListener("mouseup", onUp);
   };
   const appState = {
+    overview,
+    chart,
+    news,
+    series,
+    marketTf,
+    setMarketTf,
+    technicalTf,
+    setTechnicalTf,
+    technicalTicker,
+    setTechnicalTicker,
+    indicators,
+    setIndicators,
+    user,
     mode,
     t,
     workspace,
@@ -3185,21 +3497,10 @@ export default function App() {
           <Sidebar
             collapsed={sidebarCollapsed}
             setCollapsed={setSidebarCollapsed}
-            onNewConv={() => {
-              pendingChat.current?.abort();
-              pendingChat.current = null;
-              setIsSending(false);
-              setChatError("");
-              setMessages([]);
-              setAiInput("");
-              setWorkspace("market");
-              setActiveHistId("");
-              setMobilePanel("workspace");
-              setAIPanelMode("normal");
-            }}
-            onHistoryClick={handleHistoryClick}
+            onNewConv={newConversation}
+            onHistoryClick={openConversation}
             activeHistId={activeHistId}
-            setActiveHistId={setActiveHistId}
+            history={history}
           />
 
           {/* MAIN WORKSPACE */}
@@ -3210,7 +3511,10 @@ export default function App() {
             >
               {workspace === "market" ? (
                 <MarketWorkspace
-                  onManualAnalysis={() => setWorkspace("technical")}
+                  onManualAnalysis={() => {
+                    setTechnicalTicker(activeTicker);
+                    setWorkspace("technical");
+                  }}
                   setAiQ={queueAnalysis}
                 />
               ) : (
@@ -3254,6 +3558,8 @@ export default function App() {
                 workspace={workspace}
                 activeTicker={activeTicker}
                 indicators={indicators}
+                useWeb={useWeb}
+                setUseWeb={setUseWeb}
               />
             </div>
           )}

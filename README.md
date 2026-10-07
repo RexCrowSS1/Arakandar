@@ -2,8 +2,14 @@
 
 Monorepo aplikasi Bandar Pasar dengan frontend Next.js dan backend FastAPI.
 Frontend Arakan Ndar menyediakan workspace Market/Technical serta panel analyst
-berdasarkan desain Figma, menggunakan data pasar snapshot dan model Arakandar lokal
-untuk chat. Backend menyediakan endpoint liveness dan `POST /chat`.
+berdasarkan desain Figma, menggunakan data pasar online dengan delay bursa dan model Arakandar lokal
+untuk chat dengan sumber internet. Backend menyediakan endpoint liveness,
+`POST /chat`, `POST /web/search`, serta `/market/overview`, `/market/chart`, dan `/market/news`.
+
+Percakapan website tersimpan di Supabase menggunakan satu profil **Admin** bersama,
+tanpa login. **New Conversation** membuat record baru; **Recent** membuka kembali
+pesan yang tersimpan, termasuk setelah reload. Model menerima riwayat dari database.
+Lihat [penyimpanan percakapan](./Backend/README.md#percakapan-supabase-tanpa-login).
 
 ## Struktur
 
@@ -45,9 +51,17 @@ Layanan lokal:
 - Dokumentasi API: `http://127.0.0.1:8000/docs`
 - Liveness API: `http://127.0.0.1:8000/health`
 
-Startup backend pertama mengunduh model ±6,2 GB. Tunggu sampai startup selesai.
+Jika `BANDAR_PASAR_AI_ENABLED=true`, startup pertama mengunduh model ±6,2 GB.
+Gunakan `false` untuk menjalankan data pasar/Supabase tanpa memuat AI. Tunggu sampai startup selesai.
 Lihat [konfigurasi Arakandar lokal](./Backend/README.md#model-arakandar-lokal)
 untuk pengaturan perangkat, cache, dan batas data model.
+
+Pencarian internet aktif secara default melalui Google News RSS tanpa API key.
+Arakandar menerima judul/cuplikannya sebelum menjawab; panel chat menampilkan
+tautan sumber, tanggal terbit, dan status pencarian. **Cari di internet** dapat
+dimatikan per pesan. Grafik mengambil OHLCV Yahoo Finance; IDX tertunda 10 menit.
+Broker summary dan foreign flow memerlukan feed IDX berlisensi. Lihat
+[konfigurasi internet](./Backend/README.md#koneksi-internet-dan-sumber-jawaban).
 
 File `.env` lokal tidak boleh di-commit. Nilai yang aman untuk development tersedia
 di `.env.example` masing-masing aplikasi.
