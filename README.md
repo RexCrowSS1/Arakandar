@@ -69,6 +69,8 @@ di `.env.example` masing-masing aplikasi.
 
 ### Sectors API
 Digunakan untuk melatih AI model
+
+### Model AI
 Model AI yang digunakan adalah
 [Timothyemmanuel/Arakandar](https://huggingface.co/Timothyemmanuel/Arakandar).
 
