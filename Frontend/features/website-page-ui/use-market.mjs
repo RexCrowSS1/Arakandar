@@ -23,7 +23,8 @@ export function useMarketResource(url, refreshMs = 60_000) {
             AbortSignal.timeout(50_000),
           ]),
         });
-        if (!response.ok) throw new Error("Feed pasar belum dapat diperbarui.");
+        if (!response.ok)
+          throw new Error("The market feed could not be updated.");
         const data = await response.json();
         if (!disposed) setSnapshot({ url, data, receivedAt: Date.now() });
       } catch {
@@ -39,7 +40,7 @@ export function useMarketResource(url, refreshMs = 60_000) {
               data: {
                 ...(retain ? previous.data : {}),
                 status: retain ? "stale" : "unavailable",
-                error: "Feed pasar belum dapat diperbarui.",
+                error: "The market feed could not be updated.",
               },
             };
           });

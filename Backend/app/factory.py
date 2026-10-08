@@ -4,20 +4,22 @@ import logging
 from contextlib import asynccontextmanager
 from threading import Lock
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from app import __version__
 from app.ai import LocalChatModel
+from app.api.auth import router as auth_router
 from app.api.chat import router as chat_router
 from app.api.conversations import router as conversations_router
 from app.api.health import router as health_router
 from app.api.market import router as market_router
 from app.api.web import router as web_router
+from app.auth import AuthService, require_user
 from app.config import Settings, get_settings
-from app.conversations import ConversationStore, StorageUnavailableError
+from app.conversations import StorageUnavailableError
 from app.market import MarketData
 from app.web import WebSearch
 
@@ -47,7 +49,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.chat_model = chat_model
     application.state.web_search = WebSearch(app_settings)
     application.state.market = MarketData(app_settings)
-    application.state.conversations = ConversationStore(app_settings)
+    application.state.settings = app_settings
+    application.state.auth = AuthService(app_settings)
     application.state.conversation_chat_lock = Lock()
     application.state.active_conversation_id = None
 
@@ -60,7 +63,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             status_code=503,
             content={
                 "detail": (
-                    "Supabase tidak dapat diakses. Data belum terkonfirmasi tersimpan; coba lagi."
+                    "Supabase could not be reached. "
+                    "Your data has not been confirmed as saved; please try again."
                 )
             },
         )
@@ -75,8 +79,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         )
 
     application.include_router(health_router)
-    application.include_router(chat_router)
-    application.include_router(web_router)
+    application.include_router(auth_router)
+    application.include_router(chat_router, dependencies=[Depends(require_user)])
+    application.include_router(web_router, dependencies=[Depends(require_user)])
     application.include_router(conversations_router)
     application.include_router(market_router)
 

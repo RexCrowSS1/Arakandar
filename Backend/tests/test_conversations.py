@@ -9,6 +9,7 @@ import pytest
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
+from app.auth import require_user
 from app.config import Settings
 from app.conversations import (
     ADMIN_ID,
@@ -115,7 +116,10 @@ def setup(monkeypatch):
     app.state.web_search = SimpleNamespace(
         search=Mock(return_value=WebSearchResult(status="disabled"))
     )
-    return db, app, app.state.conversations
+    user = {"id": ADMIN_ID, "name": "Admin", "email": "admin@bandarpasar.local", "role": "admin"}
+    db.tables["users"][ADMIN_ID] = user
+    app.dependency_overrides[require_user] = lambda: user
+    return db, app, ConversationStore(settings, user)
 
 
 def send_payload(content="Analisis BBCA"):
@@ -131,7 +135,7 @@ def test_one_admin_and_idempotent_conversation_creation(setup):
     db, app, store = setup
     conversation_id = str(uuid4())
     first = store.create(conversation_id)
-    second = ConversationStore(store.settings).create(conversation_id)
+    second = ConversationStore(store.settings, store.user).create(conversation_id)
     assert first == second
     assert len(db.tables["users"]) == 1
     assert first["user"]["id"] == ADMIN_ID

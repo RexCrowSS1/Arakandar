@@ -6,10 +6,11 @@ berdasarkan desain Figma, menggunakan data pasar online dengan delay bursa dan m
 untuk chat dengan sumber internet. Backend menyediakan endpoint liveness,
 `POST /chat`, `POST /web/search`, serta `/market/overview`, `/market/chart`, dan `/market/news`.
 
-Percakapan website tersimpan di Supabase menggunakan satu profil **Admin** bersama,
-tanpa login. **New Conversation** membuat record baru; **Recent** membuka kembali
-pesan yang tersimpan, termasuk setelah reload. Model menerima riwayat dari database.
-Lihat [penyimpanan percakapan](./Backend/README.md#percakapan-supabase-tanpa-login).
+Alur website: **landing (`/`) → sign up (`/sign-up`) atau sign in (`/sign-in`) →
+analisis AI (`/analysis`)**. Supabase Auth menyimpan akun dan password; profil serta
+percakapan tersimpan di database Supabase, terpisah untuk setiap pengguna.
+Halaman analisis dan API chat/percakapan memerlukan sesi login. Tombol **SIGN OUT**
+ada di menu profil. Lihat [akun dan sesi](./Backend/README.md#akun-dan-sesi).
 
 ## Struktur
 

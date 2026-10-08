@@ -450,7 +450,7 @@ function TopTicker({ onTickerClick, activeTicker }) {
       <div
         className="market-strip-viewport"
         role="region"
-        aria-label="Market quotes · data tertunda sesuai bursa"
+        aria-label="Market quotes · exchange-delayed data"
       >
         <div
           className="market-strip-track"
@@ -533,8 +533,6 @@ function Sidebar({
   const [search, setSearch] = useState("");
   const [searchFocus, setSF] = useState(false);
   const [profileOpen, setProf] = useState(false);
-  const [authOpen, setAuth] = useState(false);
-  const [authMode, setAuthMode] = useState("signin");
   const [settingsOpen, setSet] = useState(false);
   const { mode } = useApp();
   // we need to update mode from the profile menu — bubble up via a local mechanism
@@ -757,16 +755,9 @@ function Sidebar({
         profileOpen={profileOpen}
         setProf={setProf}
         onThemeToggle={toggleMode}
-        authOpen={authOpen}
-        setAuth={setAuth}
-        authMode={authMode}
-        setAuthMode={setAuthMode}
         settingsOpen={settingsOpen}
         setSet={setSet}
       />
-
-      {/* Auth modal */}
-      {authOpen && <AuthModal mode={authMode} onClose={() => setAuth(false)} />}
     </aside>
   );
 }
@@ -840,14 +831,27 @@ function ProfileSection({
   profileOpen,
   setProf,
   onThemeToggle,
-  authOpen,
-  setAuth,
-  authMode,
-  setAuthMode,
   settingsOpen,
   setSet,
 }) {
   const { t, mode, user } = useApp();
+  const [signingOut, setSigningOut] = useState(false);
+  const [logoutError, setLogoutError] = useState("");
+  async function signOut() {
+    if (signingOut) return;
+    setSigningOut(true);
+    setLogoutError("");
+    try {
+      const response = await fetch("/api/auth/sign-out", { method: "POST" });
+      if (!response.ok)
+        throw new Error("Could not sign out. Please try again.");
+      window.location.replace("/sign-in");
+    } catch (error) {
+      setLogoutError(error.message);
+      setSigningOut(false);
+    }
+  }
+
   return (
     <div
       className="flex-shrink-0 relative"
@@ -863,31 +867,18 @@ function ProfileSection({
             padding: "8px 0",
           }}
         >
-          {/* Profile menu */}
-          {[
-            {
-              label: "SIGN IN",
-              action: () => {
-                setAuthMode("signin");
-                setAuth(true);
-                setProf(false);
-              },
-            },
-            {
-              label: "LOG IN",
-              action: () => {
-                setAuthMode("login");
-                setAuth(true);
-                setProf(false);
-              },
-            },
-          ].map((item) => (
-            <MenuRow
-              key={item.label}
-              label={item.label}
-              onClick={item.action}
-            />
-          ))}
+          <MenuRow
+            label={signingOut ? "KELUAR…" : "SIGN OUT"}
+            onClick={signOut}
+          />
+          {logoutError && (
+            <p
+              role="alert"
+              style={{ color: t.neg, padding: "8px 14px", fontSize: 11 }}
+            >
+              {logoutError}
+            </p>
+          )}
           <Div style={{ margin: "4px 0" }} />
           <Lbl
             style={{
@@ -899,10 +890,11 @@ function ProfileSection({
             PERSONAL INFORMATION
           </Lbl>
           {[
-            { label: `Name: ${user?.name || "Admin"}` },
-            { label: `Email: ${user?.email || "admin@bandarpasar.local"}` },
-            { label: "Username: admin" },
-            { label: "Account: Shared Admin" },
+            { label: `Name: ${user?.name || "Pengguna"}` },
+            { label: `Email: ${user?.email || ""}` },
+            {
+              label: `Account: ${user?.role === "admin" ? "Admin" : "Personal"}`,
+            },
           ].map((r) => (
             <div
               key={r.label}
@@ -987,12 +979,12 @@ function ProfileSection({
             fontWeight: 700,
           }}
         >
-          {(user?.name || "Admin").slice(0, 1)}
+          {(user?.name || "Pengguna").slice(0, 1)}
         </div>
         {!collapsed && (
           <div className="flex-1 text-left min-w-0">
             <div style={{ fontFamily: MONO, fontSize: "10px", color: t.text }}>
-              {user?.name || "Admin"}
+              {user?.name || "Pengguna"}
             </div>
             <div
               style={{
@@ -1002,7 +994,7 @@ function ProfileSection({
                 marginTop: "1px",
               }}
             >
-              {user?.email || "admin@bandarpasar.local"}
+              {user?.email || ""}
             </div>
           </div>
         )}
@@ -1036,87 +1028,6 @@ function MenuRow({ label, onClick, danger }) {
     >
       {label}
     </button>
-  );
-}
-function AuthModal({ mode, onClose }) {
-  const { t } = useApp();
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center"
-      style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          backgroundColor: t.surface,
-          border: `1px solid ${t.border}`,
-          padding: "28px",
-          width: "340px",
-        }}
-      >
-        <div
-          style={{
-            fontFamily: GROTESK,
-            fontWeight: 700,
-            fontSize: "18px",
-            letterSpacing: "0.08em",
-            color: t.text,
-            marginBottom: "20px",
-          }}
-        >
-          {mode === "signin" ? "SIGN IN" : "LOG IN"}
-        </div>
-        {["EMAIL", "PASSWORD"].map((f) => (
-          <div key={f} className="mb-4">
-            <Lbl style={{ display: "block", marginBottom: "5px" }}>{f}</Lbl>
-            <input
-              type={f === "PASSWORD" ? "password" : "email"}
-              placeholder={f === "EMAIL" ? "you@example.com" : "••••••••"}
-              style={{
-                width: "100%",
-                fontFamily: MONO,
-                fontSize: "11px",
-                padding: "8px 10px",
-                backgroundColor: t.bg,
-                borderTop: "1px solid",
-                borderRight: "1px solid",
-                borderBottom: "1px solid",
-                borderLeft: "1px solid",
-                borderColor: t.border,
-                color: t.text,
-                outline: "none",
-              }}
-            />
-          </div>
-        ))}
-        <button
-          className="w-full py-2 mt-2"
-          style={{
-            fontFamily: MONO,
-            fontSize: "11px",
-            letterSpacing: "0.08em",
-            backgroundColor: t.orange,
-            color: "#fff",
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          CONTINUE
-        </button>
-        <div
-          style={{
-            fontFamily: MONO,
-            fontSize: "9px",
-            color: t.textMut,
-            marginTop: "10px",
-            textAlign: "center",
-          }}
-        >
-          Forgot password?
-        </div>
-      </div>
-    </div>
   );
 }
 // ─── MARKET CHART ─────────────────────────────────────────────────────────────
@@ -1487,7 +1398,7 @@ function CandleChart({
       data-to={range?.to}
       data-bars={bars.length}
       role="application"
-      aria-label="Grafik teknikal interaktif: scroll atau pinch untuk zoom, seret untuk geser, tombol plus/minus untuk zoom, Home untuk reset"
+      aria-label="Interactive technical chart: scroll or pinch to zoom, drag to pan, use plus/minus to zoom, and press Home to reset"
       tabIndex={0}
       style={{ display: "block", cursor, touchAction: "none" }}
       {...pointerHandlers}
@@ -1586,7 +1497,7 @@ function CandleChart({
           fontFamily={MONO}
         >
           {chart.bars?.length
-            ? "Data tidak tersedia untuk rentang ini · gunakan Reset"
+            ? "No data for this range · use Reset"
             : feedLabel(chart)}
         </text>
       )}
@@ -1598,7 +1509,7 @@ function CandleChart({
           {indicators.has("VWAP") &&
           !chart.interval?.endsWith("m") &&
           chart.interval !== "4h"
-            ? " · VWAP hanya intraday"
+            ? " · VWAP is only available intraday"
             : ""}
         </text>
       )}
@@ -1735,7 +1646,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
   }));
   const TOP_GAINERS = overview.gainers || [];
   const TOP_LOSERS = overview.losers || [];
-  const BUY_BROKERS = [{ code: "Feed IDX diperlukan", val: "—" }];
+  const BUY_BROKERS = [{ code: "IDX feed required", val: "—" }];
   const SELL_BROKERS = BUY_BROKERS;
   const NEWS = (news.sources || []).map((source) => ({
     category: source.source || "NEWS",
@@ -1912,15 +1823,15 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 pos: Number.isFinite(quote.change) ? quote.change >= 0 : null,
               },
               { k: "Volume", v: fmt(quote.volume, 0), pos: null },
-              { k: "Value (feed IDX)", v: "—", pos: null },
-              { k: "Frequency (feed IDX)", v: "—", pos: null },
+              { k: "Value (IDX feed)", v: "—", pos: null },
+              { k: "Frequency (IDX feed)", v: "—", pos: null },
             ].map((r) => (
               <DataRow key={r.k} label={r.k} value={r.v} pos={r.pos} />
             ))}
           </DataSection>
 
           {/* Flow */}
-          <DataSection title="FUND FLOW · FEED IDX DIPERLUKAN">
+          <DataSection title="FUND FLOW · IDX FEED REQUIRED">
             <Lbl style={{ display: "block", marginBottom: "4px" }}>FOREIGN</Lbl>
             {[
               { k: "Buy", v: "—", pos: true },
@@ -1964,7 +1875,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 onClick={() => {
                   setSelBroker(b.code);
                   setAiQ(
-                    "Data broker summary belum tersedia. Data apa yang diperlukan untuk analisis broker?",
+                    "Broker summary data is not available. What data is needed for broker analysis?",
                   );
                 }}
                 className="flex justify-between py-1 cursor-pointer px-1"
@@ -2011,7 +1922,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                 onClick={() => {
                   setSelBroker(b.code);
                   setAiQ(
-                    "Data broker summary belum tersedia. Data apa yang diperlukan untuk analisis broker?",
+                    "Broker summary data is not available. What data is needed for broker analysis?",
                   );
                 }}
                 className="flex justify-between py-1 cursor-pointer px-1"
@@ -2047,7 +1958,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
 
           {/* Market Breadth */}
           <DataSection
-            title={`BREADTH · WATCHLIST ${breadth.available ?? 0}/${breadth.total ?? 9}${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARSIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
+            title={`BREADTH · WATCHLIST ${breadth.available ?? 0}/${breadth.total ?? 9}${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARTIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
           >
             {[
               { k: "Advancing", v: fmt(breadth.advancing, 0), pos: true },
@@ -2084,7 +1995,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
         >
           {/* Sectors */}
           <DataSection
-            title={`SECTOR PERFORMANCE${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARSIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
+            title={`SECTOR PERFORMANCE${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARTIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
             style={{ borderRight: `1px solid ${t.border}` }}
           >
             {SECTORS.map((s) => (
@@ -2145,14 +2056,14 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
 
           {/* Top movers */}
           <DataSection
-            title={`TOP MOVERS · WATCHLIST 9${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARSIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
+            title={`TOP MOVERS · WATCHLIST 9${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARTIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
           >
             <Lbl style={{ display: "block", marginBottom: "4px" }}>GAINERS</Lbl>
             {!TOP_GAINERS.length && (
               <Lbl>
                 {overview.status === "loading"
-                  ? "Memuat…"
-                  : "Tidak ada data kenaikan tersedia"}
+                  ? "Loading…"
+                  : "No gainers data available"}
               </Lbl>
             )}
             {TOP_GAINERS.map((m) => (
@@ -2204,8 +2115,8 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
             {!TOP_LOSERS.length && (
               <Lbl>
                 {overview.status === "loading"
-                  ? "Memuat…"
-                  : "Tidak ada data penurunan tersedia"}
+                  ? "Loading…"
+                  : "No losers data available"}
               </Lbl>
             )}
             {TOP_LOSERS.map((m) => (
@@ -2255,8 +2166,8 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
           {!NEWS.length && (
             <Lbl>
               {news.status === "loading"
-                ? "Memuat berita…"
-                : "Berita belum tersedia"}
+                ? "Loading news…"
+                : "News is not available"}
             </Lbl>
           )}
           {NEWS.map((n, i) => (
@@ -2328,7 +2239,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
                     {n.body}{" "}
                     {n.url && (
                       <a href={n.url} target="_blank" rel="noreferrer">
-                        Baca sumber ↗
+                        Read source ↗
                       </a>
                     )}
                   </p>
@@ -2684,7 +2595,7 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
         <section
           ref={frameRef}
           className={`technical-chart-frame${expanded ? " is-fullscreen" : ""}`}
-          aria-label="Analisis grafik"
+          aria-label="Chart analysis"
           style={{
             "--chart-bg": t.bg,
             "--chart-border": t.border,
@@ -2792,10 +2703,10 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
             </div>
             {/* Indicators dropdown */}
             <IndicatorMenu indicators={indicators} onToggle={togInd} />
-            <div className="chart-navigation" aria-label="Navigasi grafik">
+            <div className="chart-navigation" aria-label="Chart navigation">
               <button
                 type="button"
-                aria-label="Perkecil grafik"
+                aria-label="Zoom out chart"
                 title="Zoom out (−)"
                 disabled={!range || span >= MAX_SPAN}
                 onClick={() => zoom(2)}
@@ -2804,7 +2715,7 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
               </button>
               <button
                 type="button"
-                aria-label="Perbesar grafik"
+                aria-label="Zoom in chart"
                 title="Zoom in (+)"
                 disabled={!range || span <= MIN_SPAN}
                 onClick={() => zoom(0.5)}
@@ -2813,8 +2724,8 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
               </button>
               <button
                 type="button"
-                aria-label="Reset zoom grafik"
-                title="Kembali ke rentang terbaru (Home)"
+                aria-label="Reset chart zoom"
+                title="Return to the latest range (Home)"
                 onClick={resetView}
               >
                 RESET
@@ -2822,14 +2733,10 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
               <button
                 type="button"
                 aria-label={
-                  expanded
-                    ? "Keluar fullscreen grafik"
-                    : "Buka grafik fullscreen"
+                  expanded ? "Exit chart fullscreen" : "Open chart fullscreen"
                 }
                 aria-pressed={expanded}
-                title={
-                  expanded ? "Keluar fullscreen (Esc)" : "Fullscreen grafik"
-                }
+                title={expanded ? "Exit fullscreen (Esc)" : "Chart fullscreen"}
                 onClick={toggleFullscreen}
               >
                 {expanded ? "EXIT ⛶" : "FULLSCREEN ⛶"}
@@ -2972,7 +2879,7 @@ function TechnicalWorkspace({ onBackToMarket, setAiQ }) {
                   {feedLabel(chart)} ·{" "}
                   {DRAW_TOOLS.find(([t]) => t === drawTool)?.[0]?.toUpperCase()}{" "}
                   · {visible.bars.length} candle · scroll/pinch: zoom · seret:
-                  geser{expanded ? " · Esc: keluar" : ""}
+                  drag{expanded ? " · Esc: exit" : ""}
                 </Lbl>
               </div>
             </div>
@@ -3130,7 +3037,7 @@ function AIPanel({
     series,
     overview,
   } = useApp();
-  const accountName = user?.name?.trim() || "Admin";
+  const accountName = user?.name?.trim() || "Pengguna";
   const messageText = mode === "dark" ? "#F3EFE7" : t.text;
   const secondaryText = mode === "dark" ? "#BEB8AD" : t.textSec;
   const [focused, setFocused] = useState(false);
@@ -3145,7 +3052,7 @@ function AIPanel({
           { k: "TICKER", v: activeTicker },
           { k: "PRICE", v: fmt(chart.quote?.price) },
           { k: "CHANGE", v: pct(chart.quote?.change_percent) },
-          { k: "FLOW", v: "Feed IDX diperlukan" },
+          { k: "FLOW", v: "IDX feed required" },
           {
             k: "WATCHLIST ↑ / ↓",
             v: `${fmt(overview.breadth?.advancing, 0)} / ${fmt(overview.breadth?.declining, 0)}`,
@@ -3214,19 +3121,19 @@ function AIPanel({
               key={icon}
               aria-label={
                 target === "closed"
-                  ? "Tutup panel AI"
+                  ? "Close AI panel"
                   : target === "minimized"
-                    ? "Minimalkan panel AI"
+                    ? "Minimize AI panel"
                     : panelMode === "fullscreen"
-                      ? "Kembalikan ukuran panel AI"
-                      : "Perbesar panel AI"
+                      ? "Restore AI panel size"
+                      : "Expand AI panel"
               }
               title={
                 target === "closed"
-                  ? "Tutup panel AI"
+                  ? "Close AI panel"
                   : target === "minimized"
-                    ? "Minimalkan panel AI"
-                    : "Ubah ukuran panel AI"
+                    ? "Minimize AI panel"
+                    : "Resize AI panel"
               }
               onClick={() =>
                 setPanelMode(panelMode === target ? "normal" : target)
@@ -3403,17 +3310,17 @@ function AIPanel({
                 >
                   <p>
                     {m.web.status === "ok"
-                      ? "Sumber pencarian web"
+                      ? "Web search sources"
                       : m.web.status === "disabled"
-                        ? "Pencarian web nonaktif"
+                        ? "Web search is off"
                         : m.web.status === "empty"
-                          ? "Tidak ada sumber web yang dapat digunakan"
-                          : "Pencarian web gagal · informasi terbaru belum terverifikasi"}
+                          ? "No usable web sources"
+                          : "Web search failed · current information is unverified"}
                   </p>
                   {m.web.searched_at && (
                     <time dateTime={m.web.searched_at}>
-                      Dicari:{" "}
-                      {new Date(m.web.searched_at).toLocaleString("id-ID")}
+                      Searched:{" "}
+                      {new Date(m.web.searched_at).toLocaleString("en-GB")}
                     </time>
                   )}
                   {m.web.sources.map((source) => (
@@ -3434,9 +3341,9 @@ function AIPanel({
                         <span
                           style={{ display: "block", color: secondaryText }}
                         >
-                          Terbit:{" "}
+                          Published:{" "}
                           {new Date(source.published_at).toLocaleDateString(
-                            "id-ID",
+                            "en-GB",
                           )}
                         </span>
                       )}
@@ -3469,11 +3376,11 @@ function AIPanel({
             disabled={isSending}
             onChange={(event) => setUseWeb(event.target.checked)}
           />
-          Cari di internet
+          Search the web
         </label>
         {useWeb && (
           <p style={{ color: t.textSec, fontSize: "9px", marginBottom: "8px" }}>
-            Pertanyaan terakhir dan ticker dikirim ke mesin pencari.
+            Only your latest question and ticker are sent to the search engine.
           </p>
         )}
         {error && (
@@ -3505,7 +3412,7 @@ function AIPanel({
               ›
             </span>
             <input
-              aria-label="Pesan untuk Arakandar"
+              aria-label="Message for Arakandar"
               maxLength={8000}
               value={aiInput}
               onChange={(e) => setAiInput(e.target.value)}
@@ -3596,7 +3503,7 @@ function ResizeHandle({ onResizeStart }) {
   );
 }
 // ─── APP ──────────────────────────────────────────────────────────────────────
-export default function App() {
+export default function App({ initialUser }) {
   const [mode, setMode] = useState("dark");
   const [workspace, setWorkspace] = useState("market");
   const [activeTicker, setActiveTicker] = useState("IHSG");
@@ -3652,6 +3559,7 @@ export default function App() {
     openConversation,
     send: sendMessage,
   } = useConversations({
+    initialUser,
     context: {
       workspace,
       ticker: selectedTicker,

@@ -1,9 +1,9 @@
 import LandingPage from "../../features/landing-page/LandingPage";
 
 export const metadata = {
-  title: "Arakan Ndar — Market Intelligence for Indonesian Investors",
+  title: "Arakan Ndar — Indonesian Market Terminal",
   description:
-    "Real-time market data, technical analysis, and an AI analyst workspace built for the Indonesian stock market. IHSG, blue chips, sector heatmaps, and broker flow — all in one terminal.",
+    "Track stock prices, read technical charts, and discuss your analysis with Arakandar in one workspace for Indonesian markets.",
 };
 
 export default function Landing() {

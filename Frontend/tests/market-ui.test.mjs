@@ -133,7 +133,7 @@ async function mountMarket(t) {
         element.props.className === "technical-candle-chart"
           ? svgNode
           : element.type === "section" &&
-              element.props["aria-label"] === "Analisis grafik"
+              element.props["aria-label"] === "Chart analysis"
             ? frameNode
             : null,
     });
@@ -187,7 +187,7 @@ test("website controls select actual chart resources and send the same technical
   assert.ok(ma, "MA indicator control exists");
   await act(async () => ma.props.onClick());
   const input = root.root.findByProps({
-    "aria-label": "Pesan untuk Arakandar",
+    "aria-label": "Message for Arakandar",
   });
   await act(async () =>
     input.props.onChange({ target: { value: "Analisis data grafik ini" } }),
@@ -222,9 +222,7 @@ test("chart zoom changes intervals through years/minutes, keeps RSI at 0–100, 
   const initialSpan = chart().props["data-to"] - chart().props["data-from"];
   for (let i = 0; i < 8; i++)
     await act(async () =>
-      root.root
-        .findByProps({ "aria-label": "Perkecil grafik" })
-        .props.onClick(),
+      root.root.findByProps({ "aria-label": "Zoom out chart" }).props.onClick(),
     );
   assert.ok(
     chart().props["data-to"] - chart().props["data-from"] > initialSpan,
@@ -238,9 +236,7 @@ test("chart zoom changes intervals through years/minutes, keeps RSI at 0–100, 
   );
   for (let i = 0; i < 24; i++)
     await act(async () =>
-      root.root
-        .findByProps({ "aria-label": "Perbesar grafik" })
-        .props.onClick(),
+      root.root.findByProps({ "aria-label": "Zoom in chart" }).props.onClick(),
     );
   assert.ok(requests.some((url) => url.searchParams.get("timeframe") === "1M"));
   assert.ok(
@@ -248,7 +244,7 @@ test("chart zoom changes intervals through years/minutes, keeps RSI at 0–100, 
     "Zoom into the current session, not future midnight",
   );
   assert.equal(
-    root.root.findByProps({ "aria-label": "Perbesar grafik" }).props.disabled,
+    root.root.findByProps({ "aria-label": "Zoom in chart" }).props.disabled,
     true,
   );
   const rsi = root.root.findByProps({ "data-indicator": "RSI" });
@@ -259,9 +255,7 @@ test("chart zoom changes intervals through years/minutes, keeps RSI at 0–100, 
       rsi.findAllByType("text").some((node) => node.children.includes(tick)),
     );
   await act(async () =>
-    root.root
-      .findByProps({ "aria-label": "Reset zoom grafik" })
-      .props.onClick(),
+    root.root.findByProps({ "aria-label": "Reset chart zoom" }).props.onClick(),
   );
   assert.ok(chart().props["data-bars"] >= 100);
 });
@@ -311,12 +305,12 @@ test("wheel, drag, and pinch change the time window; fullscreen and Escape prese
   ];
   await act(async () =>
     root.root
-      .findByProps({ "aria-label": "Buka grafik fullscreen" })
+      .findByProps({ "aria-label": "Open chart fullscreen" })
       .props.onClick(),
   );
   assert.equal(document.fullscreenElement, frameNode);
   assert.match(
-    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    root.root.findByProps({ "aria-label": "Chart analysis" }).props.className,
     /is-fullscreen/,
   );
   await act(async () =>
@@ -330,7 +324,7 @@ test("wheel, drag, and pinch change the time window; fullscreen and Escape prese
     beforeFullscreen,
   );
   assert.doesNotMatch(
-    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    root.root.findByProps({ "aria-label": "Chart analysis" }).props.className,
     /is-fullscreen/,
   );
   frameNode.requestFullscreen = async () => {
@@ -338,20 +332,20 @@ test("wheel, drag, and pinch change the time window; fullscreen and Escape prese
   };
   await act(async () =>
     root.root
-      .findByProps({ "aria-label": "Buka grafik fullscreen" })
+      .findByProps({ "aria-label": "Open chart fullscreen" })
       .props.onClick(),
   );
   assert.match(
-    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    root.root.findByProps({ "aria-label": "Chart analysis" }).props.className,
     /is-fullscreen/,
   );
   await act(async () =>
     root.root
-      .findByProps({ "aria-label": "Keluar fullscreen grafik" })
+      .findByProps({ "aria-label": "Exit chart fullscreen" })
       .props.onClick(),
   );
   assert.doesNotMatch(
-    root.root.findByProps({ "aria-label": "Analisis grafik" }).props.className,
+    root.root.findByProps({ "aria-label": "Chart analysis" }).props.className,
     /is-fullscreen/,
   );
   assert.doesNotMatch(JSON.stringify(root.toJSON()), /NaN|Infinity/);

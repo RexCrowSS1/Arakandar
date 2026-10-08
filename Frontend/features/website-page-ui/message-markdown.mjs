@@ -23,7 +23,7 @@ function MarkdownTable({ children }) {
     {
       className: "chat-markdown-table",
       role: "region",
-      "aria-label": "Tabel jawaban AI",
+      "aria-label": "AI response table",
       tabIndex: 0,
     },
     createElement("table", null, children),

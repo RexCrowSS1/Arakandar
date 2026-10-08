@@ -1,3 +1,5 @@
+import { authHeaders } from "../../../features/auth/session.mjs";
+
 export const runtime = "nodejs";
 export const maxDuration = 240;
 
@@ -7,14 +9,14 @@ export async function POST(request) {
     const body = await request.text();
     if (body.length > 100_000) {
       return Response.json(
-        { detail: "Percakapan terlalu panjang." },
+        { detail: "The conversation is too long." },
         { status: 413 },
       );
     }
     payload = JSON.parse(body);
   } catch {
     return Response.json(
-      { detail: "Format pesan tidak valid." },
+      { detail: "Invalid message format." },
       { status: 400 },
     );
   }
@@ -26,7 +28,7 @@ export async function POST(request) {
     );
     const response = await fetch(`${baseUrl}/chat`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(request),
       body: JSON.stringify(payload),
       cache: "no-store",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(240_000)]),
@@ -38,7 +40,7 @@ export async function POST(request) {
           detail:
             typeof data.detail === "string"
               ? data.detail
-              : "Pesan tidak valid atau terlalu panjang.",
+              : "The message is invalid or too long.",
         },
         { status: response.status },
       );
@@ -56,8 +58,8 @@ export async function POST(request) {
     return Response.json(
       {
         detail: timeout
-          ? "Model terlalu lama merespons. Silakan coba lagi."
-          : "Backend AI tidak dapat dihubungi. Pastikan backend lokal berjalan.",
+          ? "The model took too long to respond. Please try again."
+          : "Could not reach the AI backend. Make sure the local backend is running.",
       },
       { status: timeout ? 504 : 503 },
     );

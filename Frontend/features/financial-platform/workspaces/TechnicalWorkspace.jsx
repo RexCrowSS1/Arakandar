@@ -121,7 +121,8 @@ export default function TechnicalWorkspace({
           </span>
           {INDICATORS.map((indicator) => (
             <button
-      f       type="button"
+              f
+              type="button"
               key={indicator}
               className={CONTROL}
               aria-pressed={

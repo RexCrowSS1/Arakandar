@@ -3,9 +3,13 @@ import { test } from "node:test";
 import { readFile } from "node:fs/promises";
 
 // Load the route as ESM without changing the Next.js project's module configuration.
-const source = await readFile(
+let source = await readFile(
   new URL("../app/api/chat/route.js", import.meta.url),
   "utf8",
+);
+source = source.replace(
+  '"../../../features/auth/session.mjs"',
+  JSON.stringify(new URL("../features/auth/session.mjs", import.meta.url).href),
 );
 const { POST } = await import(
   `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`

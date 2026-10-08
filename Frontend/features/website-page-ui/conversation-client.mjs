@@ -5,8 +5,10 @@ async function request(path, options = {}) {
     headers: { "Content-Type": "application/json" },
   });
   const data = await response.json();
+  if (response.status === 401 && typeof window !== "undefined")
+    window.location.replace("/sign-in");
   if (!response.ok)
-    throw new Error(data.detail || "Percakapan belum dapat disimpan.");
+    throw new Error(data.detail || "The conversation could not be saved.");
   return data;
 }
 

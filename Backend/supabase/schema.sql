@@ -1,5 +1,6 @@
 -- Bootstrap for a NEW Supabase project. The connected project already has these
 -- tables; the application uses them without requiring a destructive migration.
+-- Account credentials live in Supabase Auth. public.users contains profiles only.
 begin;
 
 create table if not exists public.users (
@@ -52,6 +53,7 @@ revoke all on public.users, public.conversations, public.messages, public.agent_
 grant select, insert, update, delete
     on public.users, public.conversations, public.messages, public.agent_logs to service_role;
 
+-- Legacy Admin profile; app.seed_admin links the Auth account to this owner.
 insert into public.users (id, email, name)
 values ('7da1eb14-f6de-5a34-b61d-a4b8156acc84', 'admin@bandarpasar.local', 'Admin')
 on conflict (id) do nothing;

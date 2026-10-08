@@ -4,6 +4,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+from app.auth import require_user
 from app.config import Settings
 from app.factory import create_app
 from app.web import WebSearch
@@ -64,7 +65,9 @@ def test_search_endpoint_works_without_loading_model(provider):
     provider.return_value = [
         {"title": "IDX", "href": "https://www.idx.co.id", "body": "Bursa Efek Indonesia"}
     ]
-    with TestClient(create_app(Settings(ai_enabled=False, web_enabled=True))) as client:
+    app = create_app(Settings(ai_enabled=False, web_enabled=True))
+    app.dependency_overrides[require_user] = lambda: {"id": "test-user"}
+    with TestClient(app) as client:
         response = client.post("/web/search", json={"query": "Bursa Efek Indonesia"})
         assert response.status_code == 200
         assert response.json()["status"] == "ok"
@@ -92,6 +95,7 @@ def test_bing_rss_uses_fixed_https_endpoint_timeout_and_query_params(monkeypatch
     assert result.sources[0].url == "https://idx.co.id"
     assert stream.call_args.args == ("GET", "https://www.bing.com/search")
     assert stream.call_args.kwargs["params"]["q"] == "IDX & BBCA"
+    assert stream.call_args.kwargs["params"]["cc"] == "us"
     assert stream.call_args.kwargs["timeout"] == 8
     assert stream.call_args.kwargs["follow_redirects"] is False
 
@@ -122,6 +126,7 @@ def test_news_rss_sorts_publication_dates_and_ignores_invalid_dates(monkeypatch)
     assert result.sources[2].published_at is None
     assert stream.call_args.args[1] == "https://news.google.com/rss/search"
     assert stream.call_args.kwargs["params"]["q"] == "BBCA"
+    assert stream.call_args.kwargs["params"]["ceid"] == "US:en"
 
 
 def test_alternative_search_provider_uses_bounded_settings(monkeypatch):
@@ -134,7 +139,7 @@ def test_alternative_search_provider_uses_bounded_settings(monkeypatch):
     assert result.status == "ok"
     factory.assert_called_once_with(timeout=8)
     factory.return_value.text.assert_called_once_with(
-        "IDX", region="id-id", safesearch="moderate", max_results=3, backend="duckduckgo"
+        "IDX", region="us-en", safesearch="moderate", max_results=3, backend="duckduckgo"
     )
 
 

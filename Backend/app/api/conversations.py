@@ -1,14 +1,23 @@
-"""Shared-admin conversation endpoints, without a login flow."""
+"""Conversations scoped to the authenticated account."""
 
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict
 
 from app.api.chat import ChatContext, ChatRequest, MessageText, chat
-from app.conversations import model_history
+from app.auth import require_user
+from app.conversations import ConversationStore, model_history
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
+
+
+def user_store(request: Request, user: Annotated[dict, Depends(require_user)]):
+    return ConversationStore(request.app.state.settings, user)
+
+
+Store = Annotated[ConversationStore, Depends(user_store)]
 
 
 class CreateConversation(BaseModel):
@@ -25,33 +34,32 @@ class SendMessage(BaseModel):
 
 
 @router.get("")
-def list_conversations(request: Request, offset: int = Query(default=0, ge=0)):
-    return request.app.state.conversations.list(offset=offset)
+def list_conversations(store: Store, offset: int = Query(default=0, ge=0)):
+    return store.list(offset=offset)
 
 
 @router.post("")
-def create_conversation(payload: CreateConversation, request: Request):
-    return {**request.app.state.conversations.create(str(payload.id)), "processing": False}
+def create_conversation(payload: CreateConversation, store: Store):
+    return {**store.create(str(payload.id)), "processing": False}
 
 
 @router.get("/{conversation_id}")
-def get_conversation(conversation_id: UUID, request: Request):
+def get_conversation(conversation_id: UUID, request: Request, store: Store):
     return {
-        **request.app.state.conversations.detail(str(conversation_id)),
+        **store.detail(str(conversation_id)),
         "processing": request.app.state.active_conversation_id == str(conversation_id),
     }
 
 
 @router.post("/{conversation_id}/messages")
-def send_message(conversation_id: UUID, payload: SendMessage, request: Request):
+def send_message(conversation_id: UUID, payload: SendMessage, request: Request, store: Store):
     state = request.app.state
     if not state.conversation_chat_lock.acquire(blocking=False):
         raise HTTPException(
-            429, "Model sedang menjawab. Pesan Anda belum dikirim; coba lagi sebentar."
+            429, "The model is busy. Your message was not sent; please try again shortly."
         )
     conversation_id, request_id = str(conversation_id), str(payload.request_id)
     state.active_conversation_id = conversation_id
-    store = state.conversations
     try:
         cached = store.begin(
             conversation_id,

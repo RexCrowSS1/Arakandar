@@ -74,7 +74,7 @@ test("polling marks retained prices stale, expires them, and recovers", async (t
   await act(async () => t.mock.timers.tick(60_001));
   assert.equal(hook.value().status, "stale");
   assert.equal(hook.value().quote.price, 123);
-  assert.match(feedLabel(hook.value()), /DATA LAMA/);
+  assert.match(feedLabel(hook.value()), /STALE DATA/);
   await act(async () => t.mock.timers.tick(600_000));
   assert.equal(hook.value().status, "unavailable");
   assert.equal(hook.value().quote, undefined);
@@ -110,7 +110,7 @@ test("missing data stays unknown and dates use actual exchange timestamps", () =
   assert.deepEqual(axisLabels([], "UTC", true), []);
   assert.deepEqual(
     axisLabels([{ time: "2026-10-07T02:00:00Z" }], "Asia/Jakarta", true),
-    Array(4).fill("09.00"),
+    Array(4).fill("09:00"),
   );
   assert.match(
     feedLabel({
@@ -118,7 +118,7 @@ test("missing data stays unknown and dates use actual exchange timestamps", () =
       delay_minutes: 10,
       as_of: "2026-10-07T02:00:00Z",
     }),
-    /delay 10 menit/,
+    /10-minute delay/,
   );
 });
 

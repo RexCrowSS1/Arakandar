@@ -38,7 +38,7 @@ export const pct = (value) =>
   Number.isFinite(value) ? `${value > 0 ? "+" : ""}${fmt(value)}%` : "—";
 export function dateLabel(value, timezone = "Asia/Jakarta", intraday = false) {
   if (!value || !Number.isFinite(Date.parse(value))) return "—";
-  return new Intl.DateTimeFormat("id-ID", {
+  return new Intl.DateTimeFormat("en-GB", {
     timeZone: timezone,
     ...(intraday
       ? { hour: "2-digit", minute: "2-digit" }
@@ -46,16 +46,16 @@ export function dateLabel(value, timezone = "Asia/Jakarta", intraday = false) {
   }).format(new Date(value));
 }
 export function feedLabel(data) {
-  if (!data || data.status === "loading") return "Memuat data pasar…";
+  if (!data || data.status === "loading") return "Loading market data…";
   if (data.status === "unavailable")
-    return "Data belum tersedia · mencoba kembali otomatis";
+    return "Data unavailable · retrying automatically";
   const quote = data.quote || data;
   const asOf = quote.as_of || data.as_of;
   const status =
-    data.status === "stale" || quote.status === "stale" ? "DATA LAMA · " : "";
+    data.status === "stale" || quote.status === "stale" ? "STALE DATA · " : "";
   const delay = quote.delay_minutes
-    ? `delay ${quote.delay_minutes} menit`
-    : "delay sesuai bursa";
+    ? `${quote.delay_minutes}-minute delay`
+    : "exchange-delayed data";
   return `${status}Yahoo Finance · ${delay} · ${dateLabel(asOf)} ${dateLabel(asOf, "Asia/Jakarta", true)} WIB`;
 }
 export function axisLabels(bars, timezone, intraday, count = 4) {

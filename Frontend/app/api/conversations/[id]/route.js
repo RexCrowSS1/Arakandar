@@ -7,7 +7,7 @@ export async function GET(request, { params }) {
   const { id } = await params;
   if (!validConversationId(id)) {
     return Response.json(
-      { detail: "ID percakapan tidak valid." },
+      { detail: "Invalid conversation ID." },
       { status: 400 },
     );
   }

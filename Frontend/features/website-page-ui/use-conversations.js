@@ -11,15 +11,16 @@ import {
 
 const ACTIVE_KEY = "bandar-pasar.active-conversation";
 
-function remember(id) {
+function remember(id, userId) {
   try {
-    window.localStorage.setItem(ACTIVE_KEY, id);
+    window.localStorage.setItem(`${ACTIVE_KEY}.${userId}`, id);
   } catch {
     /* Storage is optional. */
   }
 }
 
 export function useConversations({
+  initialUser,
   context,
   setWorkspace,
   setActiveTicker,
@@ -32,7 +33,7 @@ export function useConversations({
   openAnalyst,
 }) {
   const [history, setHistory] = useState([]);
-  const [user, setUser] = useState(null);
+  const [user, setUser] = useState(initialUser || null);
   const [activeId, setActiveId] = useState("");
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
@@ -58,7 +59,7 @@ export function useConversations({
     (detail, restoreContext = true) => {
       active.current = detail.conversation.id;
       setActiveId(active.current);
-      remember(active.current);
+      remember(active.current, detail.user.id);
       setMessages(conversationMessages(detail));
       setUser(detail.user);
       setProcessing(Boolean(detail.processing));
@@ -100,7 +101,9 @@ export function useConversations({
         setUser(result.user);
         let saved;
         try {
-          saved = window.localStorage.getItem(ACTIVE_KEY);
+          saved = window.localStorage.getItem(
+            `${ACTIVE_KEY}.${result.user.id}`,
+          );
         } catch {
           /* Optional. */
         }

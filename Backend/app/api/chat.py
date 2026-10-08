@@ -78,12 +78,14 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             web,
         )
     except ModelUnavailableError as exc:
-        raise HTTPException(503, "Model Arakandar belum siap. Periksa log backend.") from exc
+        raise HTTPException(
+            503, "The Arakandar model is not ready. Check the backend logs."
+        ) from exc
     except ModelBusyError as exc:
-        raise HTTPException(429, "Model sedang menjawab. Coba lagi sebentar.") from exc
+        raise HTTPException(429, "The model is busy. Please try again shortly.") from exc
     except PromptTooLongError as exc:
-        raise HTTPException(422, "Pesan terlalu panjang. Pendekkan pertanyaan Anda.") from exc
+        raise HTTPException(422, "The message is too long. Please shorten your question.") from exc
     except Exception as exc:
         logger.exception("Local model inference failed")
-        raise HTTPException(503, "Model gagal menjawab. Silakan coba lagi.") from exc
+        raise HTTPException(503, "The model could not respond. Please try again.") from exc
     return ChatResponse(reply=reply, model=service.settings.ai_model_id, web=web, market=market)

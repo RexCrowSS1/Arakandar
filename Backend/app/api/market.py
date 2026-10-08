@@ -12,7 +12,7 @@ router = APIRouter(prefix="/market", tags=["market"])
 def supported(ticker: str) -> str:
     ticker = ticker.upper()
     if ticker not in SYMBOLS:
-        raise HTTPException(422, "Ticker belum didukung oleh feed pasar.")
+        raise HTTPException(422, "This ticker is not supported by the market feed.")
     return ticker
 
 
@@ -30,7 +30,7 @@ def chart(
 ):
     ticker = supported(ticker)
     if timeframe not in (RANGES if mode == "market" else INTERVALS):
-        raise HTTPException(422, "Timeframe tidak didukung.")
+        raise HTTPException(422, "This timeframe is not supported.")
     return request.app.state.market.chart(ticker, timeframe, mode)
 
 

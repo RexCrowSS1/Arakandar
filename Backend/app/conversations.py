@@ -22,13 +22,13 @@ def related_id(request_id: str, purpose: str) -> str:
 
 
 class ConversationStore:
-    def __init__(self, settings: Settings):
+    def __init__(self, settings: Settings, user: dict):
         self.settings = settings
-        self._admin = None
+        self.user = user
 
     @property
     def client(self):
-        # Publishable keys must never be used for the shared administrator's writes.
+        # All database access stays on the server.
         if not self.settings.supabase_secret_key:
             raise StorageUnavailableError("A server-side Supabase secret key is required")
         try:
@@ -42,49 +42,28 @@ class ConversationStore:
         except Exception as exc:
             raise StorageUnavailableError from exc
 
-    def admin(self) -> dict:
-        if self._admin is None:
-            rows = self.execute(
-                self.client.table("users").select("id,name,email").eq("email", ADMIN_EMAIL).limit(1)
-            )
-            if not rows:
-                self.execute(
-                    self.client.table("users").upsert(
-                        {"id": ADMIN_ID, "email": ADMIN_EMAIL, "name": "Admin"},
-                        on_conflict="id",
-                        ignore_duplicates=True,
-                    )
-                )
-                rows = self.execute(
-                    self.client.table("users").select("id,name,email").eq("id", ADMIN_ID)
-                )
-            if not rows:
-                raise StorageUnavailableError
-            self._admin = rows[0]
-        return self._admin
-
     def list(self, offset: int = 0, limit: int = 100) -> dict:
-        admin = self.admin()
+        user = self.user
         rows = self.execute(
             self.client.table("conversations")
             .select("id,title,created_at,updated_at")
-            .eq("user_id", admin["id"])
+            .eq("user_id", user["id"])
             .order("updated_at", desc=True)
             .order("id", desc=True)
             .range(offset, offset + limit)
         )
-        return {"user": admin, "conversations": rows[:limit], "has_more": len(rows) > limit}
+        return {"user": user, "conversations": rows[:limit], "has_more": len(rows) > limit}
 
     def conversation(self, conversation_id: str) -> dict:
         rows = self.execute(
             self.client.table("conversations")
             .select("id,user_id,title,created_at,updated_at")
             .eq("id", conversation_id)
-            .eq("user_id", self.admin()["id"])
+            .eq("user_id", self.user["id"])
             .limit(1)
         )
         if not rows:
-            raise HTTPException(404, "Percakapan tidak ditemukan.")
+            raise HTTPException(404, "Conversation not found.")
         return rows[0]
 
     def create(self, conversation_id: str) -> dict:
@@ -92,7 +71,7 @@ class ConversationStore:
             self.client.table("conversations").upsert(
                 {
                     "id": conversation_id,
-                    "user_id": self.admin()["id"],
+                    "user_id": self.user["id"],
                     "title": "New Conversation",
                 },
                 on_conflict="id",
@@ -155,7 +134,7 @@ class ConversationStore:
             retry = None
         return {
             "conversation": conversation,
-            "user": self.admin(),
+            "user": self.user,
             "messages": messages,
             "context": context,
             "use_web": use_web,
@@ -174,7 +153,9 @@ class ConversationStore:
             or existing[0]["role"] != "user"
             or existing[0]["content"] != content
         ):
-            raise HTTPException(409, "ID pesan sudah digunakan untuk pesan yang berbeda.")
+            raise HTTPException(
+                409, "This message ID has already been used for a different message."
+            )
         log_id = related_id(request_id, "request")
         previous = self.execute(
             self.client.table("agent_logs").select("*").eq("id", log_id).limit(1)
@@ -212,7 +193,7 @@ class ConversationStore:
             self.client.table("conversations")
             .update(update)
             .eq("id", conversation_id)
-            .eq("user_id", self.admin()["id"])
+            .eq("user_id", self.user["id"])
         )
         return None
 
@@ -253,7 +234,7 @@ class ConversationStore:
             self.client.table("conversations")
             .update({"updated_at": datetime.now(UTC).isoformat()})
             .eq("id", conversation_id)
-            .eq("user_id", self.admin()["id"])
+            .eq("user_id", self.user["id"])
         )
         return {**self.detail(conversation_id), "processing": False}
 

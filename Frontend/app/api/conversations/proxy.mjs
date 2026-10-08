@@ -1,10 +1,12 @@
+import { authHeaders } from "../../../features/auth/session.mjs";
+
 export async function proxyConversations(request, path = "") {
   let body;
   if (request.method === "POST") {
     body = await request.text();
     if (body.length > 50_000) {
       return Response.json(
-        { detail: "Pesan terlalu panjang." },
+        { detail: "The message is too long." },
         { status: 413 },
       );
     }
@@ -12,7 +14,7 @@ export async function proxyConversations(request, path = "") {
       JSON.parse(body);
     } catch {
       return Response.json(
-        { detail: "Format pesan tidak valid." },
+        { detail: "Invalid message format." },
         { status: 400 },
       );
     }
@@ -24,7 +26,7 @@ export async function proxyConversations(request, path = "") {
     );
     const response = await fetch(`${baseUrl}/conversations${path}`, {
       method: request.method,
-      headers: { "Content-Type": "application/json" },
+      headers: authHeaders(request),
       body,
       cache: "no-store",
       signal: AbortSignal.any([request.signal, AbortSignal.timeout(240_000)]),
@@ -36,7 +38,7 @@ export async function proxyConversations(request, path = "") {
           detail:
             typeof data.detail === "string"
               ? data.detail
-              : "Permintaan percakapan tidak valid.",
+              : "Invalid conversation request.",
         },
         { status: response.status },
       );
@@ -47,8 +49,8 @@ export async function proxyConversations(request, path = "") {
       {
         detail:
           error.name === "TimeoutError"
-            ? "Jawaban belum diterima. Percakapan dapat dibuka kembali dari riwayat; kirim ulang untuk mencoba lagi."
-            : "Backend percakapan tidak dapat dihubungi. Silakan coba lagi.",
+            ? "No response was received. Reopen the conversation from history and resend to try again."
+            : "Could not reach the conversation service. Please try again.",
       },
       { status: error.name === "TimeoutError" ? 504 : 503 },
     );

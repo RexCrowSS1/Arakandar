@@ -245,11 +245,11 @@ class MarketData:
                     return {
                         **deepcopy(cached[1]),
                         "status": "stale",
-                        "error": "Penyedia data belum dapat diperbarui.",
+                        "error": "The data provider could not be updated.",
                     }
                 return {
                     "status": "unavailable",
-                    "error": "Penyedia data tidak dapat dihubungi.",
+                    "error": "Could not reach the data provider.",
                     "fetched_at": None,
                 }
             with self.lock:
@@ -411,7 +411,7 @@ class MarketData:
                     for ticker in SECTORS
                 ],
                 "unavailable": {
-                    key: "Memerlukan feed IDX/broker berlisensi."
+                    key: "A licensed IDX/broker feed is required."
                     for key in (
                         "foreign_flow",
                         "domestic_flow",

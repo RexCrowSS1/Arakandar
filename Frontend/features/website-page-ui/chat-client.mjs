@@ -26,10 +26,12 @@ export async function requestChat(payload, signal) {
   });
   const data = await response.json();
   if (!response.ok) {
-    throw new Error(data.detail || "Model gagal menjawab. Silakan coba lagi.");
+    throw new Error(
+      data.detail || "The model could not respond. Please try again.",
+    );
   }
   if (typeof data.reply !== "string" || !data.reply.trim()) {
-    throw new Error("Model mengirim jawaban kosong. Silakan coba lagi.");
+    throw new Error("The model returned an empty response. Please try again.");
   }
   return {
     reply: data.reply,

@@ -46,7 +46,7 @@ class WebSearch:
         if self.settings.web_backend not in {"bing", "google_news"}:
             return DDGS(timeout=self.settings.web_timeout_seconds).text(
                 query,
-                region="id-id",
+                region="us-en",
                 safesearch="moderate",
                 max_results=self.settings.web_max_results,
                 backend=self.settings.web_backend,
@@ -57,9 +57,9 @@ class WebSearch:
             "GET",
             "https://news.google.com/rss/search" if news else "https://www.bing.com/search",
             params=(
-                {"q": query, "hl": "id", "gl": "ID", "ceid": "ID:id"}
+                {"q": query, "hl": "en-US", "gl": "US", "ceid": "US:en"}
                 if news
-                else {"q": query, "format": "rss", "cc": "id"}
+                else {"q": query, "format": "rss", "cc": "us"}
             ),
             timeout=self.settings.web_timeout_seconds,
             follow_redirects=False,

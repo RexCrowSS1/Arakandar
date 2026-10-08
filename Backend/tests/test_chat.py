@@ -16,6 +16,7 @@ from app.ai import (
     PromptTooLongError,
     build_messages,
 )
+from app.auth import require_user
 from app.config import Settings
 from app.factory import create_app
 from app.web import WebSearchResult, WebSource
@@ -29,6 +30,7 @@ def anyio_backend():
 @pytest.fixture
 def application():
     app = create_app(Settings(ai_enabled=False))
+    app.dependency_overrides[require_user] = lambda: {"id": "test-user"}
     app.state.chat_model = SimpleNamespace(
         settings=Settings(ai_enabled=False),
         is_ready=True,

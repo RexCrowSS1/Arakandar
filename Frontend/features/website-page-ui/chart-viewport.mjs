@@ -165,7 +165,7 @@ export function timeTicks(range, timezone = "Asia/Jakarta", count = 5) {
               minute: "2-digit",
               ...(span > 12 * HOUR ? { day: "2-digit", month: "short" } : {}),
             };
-  const format = new Intl.DateTimeFormat("id-ID", {
+  const format = new Intl.DateTimeFormat("en-GB", {
     timeZone: timezone,
     ...options,
   });

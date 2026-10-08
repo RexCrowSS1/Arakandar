@@ -4,10 +4,7 @@ export const dynamic = "force-dynamic";
 export async function GET(request, { params }) {
   const { resource } = await params;
   if (!["overview", "chart", "news"].includes(resource)) {
-    return Response.json(
-      { detail: "Data pasar tidak ditemukan." },
-      { status: 404 },
-    );
+    return Response.json({ detail: "Market data not found." }, { status: 404 });
   }
   const query = new URLSearchParams();
   const incoming = new URL(request.url).searchParams;
@@ -30,7 +27,7 @@ export async function GET(request, { params }) {
     });
   } catch {
     return Response.json(
-      { status: "unavailable", detail: "Feed pasar belum dapat dihubungi." },
+      { status: "unavailable", detail: "Could not reach the market feed." },
       { status: 503 },
     );
   }

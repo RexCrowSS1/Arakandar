@@ -1,8 +1,8 @@
 # Bandar Pasar Backend
 
 Backend FastAPI dengan liveness check, konfigurasi CORS, dan lazy Supabase client
-dependency untuk handler API. Percakapan website disimpan di Supabase dengan
-satu user Admin bersama, tanpa login. `POST /chat` menjalankan model
+dependency untuk handler API. Akun menggunakan Supabase Auth dan percakapan
+disimpan di Supabase dengan pemilik sesuai akun yang masuk. `POST /chat` menjalankan model
 [`Timothyemmanuel/Arakandar`](https://huggingface.co/Timothyemmanuel/Arakandar)
 secara lokal melalui Transformers.
 
@@ -44,6 +44,7 @@ Setelah file tercache, `HF_HUB_OFFLINE=1` dapat digunakan untuk startup tanpa in
 ```bash
 curl http://127.0.0.1:8000/chat \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -d '{"messages":[{"role":"user","content":"Halo, kamu bisa membantu apa?"}],"context":{"workspace":"market","ticker":"IHSG","indicators":[]}}'
 ```
 
@@ -96,6 +97,7 @@ Uji internet tanpa memuat bobot model dengan menjalankan backend menggunakan
 ```bash
 curl http://127.0.0.1:8000/web/search \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ACCESS_TOKEN" \
   -d '{"query":"BBCA berita terbaru"}'
 ```
 
@@ -107,30 +109,67 @@ dikurangi agar pertanyaan terbaru dan jawaban tetap muat dalam batas token.
 Cuplikan diperlakukan sebagai data tidak tepercaya, bukan instruksi model.
 Pencarian internet ini bukan feed harga real-time dan tidak memperbarui grafik.
 
-## Percakapan Supabase tanpa login
+## Akun dan sesi
 
-Gunakan `SUPABASE_URL` dan `SUPABASE_SECRET_KEY` di `Backend/.env`.
-Kunci server hanya dibaca backend; kunci publishable tidak cukup untuk penulisan
-admin. Proyek yang terhubung sudah memiliki tabel berikut, sehingga integrasi
-tidak memerlukan perubahan atau penghapusan schema yang ada:
-
-| Tabel | Data |
-| --- | --- |
-| `users` | Satu profil `Admin`, email identitas `admin@bandarpasar.local` |
-| `conversations` | Pemilik, judul, waktu dibuat dan diperbarui |
-| `messages` | Teks setiap pesan user dan jawaban AI |
-| `agent_logs` | Konteks workspace/ticker/indikator, pilihan internet, model, sumber web, status/error |
-
-Admin adalah profil aplikasi dalam `public.users`, bukan akun login Supabase Auth
-atau administrator dashboard. Semua pengunjung memakai profil dan riwayat yang
-sama sesuai mode tanpa login ini. Server menetapkan pemilik; browser tidak dapat
-memilih `user_id` lain. Profil dibuat secara idempoten dengan ID
-`7da1eb14-f6de-5a34-b61d-a4b8156acc84`; profil dengan email admin yang sama dipakai
-kembali jika sudah ada.
+Gunakan `SUPABASE_URL`, `SUPABASE_PUBLISHABLE_KEY`, dan `SUPABASE_SECRET_KEY`
+di `Backend/.env`. Password dikelola oleh Supabase Auth; tabel `public.users`
+hanya menyimpan profil. Kunci server tidak dikirim ke browser. Implementasi mengikuti
+[password authentication Supabase](https://supabase.com/docs/guides/auth/passwords).
 
 | Endpoint | Perilaku |
 | --- | --- |
-| `GET /conversations?offset=0` | Admin dan riwayat, halaman 100 item |
+| `POST /auth/sign-up` | `{name,email,password}`, password minimal 8 karakter |
+| `POST /auth/sign-in` | `{email,password}`; `admin` diterjemahkan ke `admin@bandarpasar.local` |
+| `POST /auth/refresh` | Memperbarui access token menggunakan refresh token |
+| `GET /auth/me` | Profil pemilik Bearer token yang diverifikasi Supabase |
+| `POST /auth/sign-out` | Mencabut refresh session perangkat saat ini |
+
+Frontend menyimpan token hanya dalam cookie HttpOnly, SameSite=Lax, serta Secure
+pada production. Cookie access mengikuti masa berlaku Supabase, sedangkan cookie
+refresh berlaku tujuh hari. Next.js memperbarui sesi sebelum halaman/API terlindungi
+diakses. Token tidak dikirim dalam JSON ke JavaScript browser atau localStorage.
+Setelah logout, refresh session dicabut; JWT yang sudah diterbitkan tetap memiliki
+masa berlaku sampai kedaluwarsa, sesuai mekanisme Supabase.
+
+Pendaftaran mengikuti pengaturan **Confirm email** proyek Supabase. Jika aktif,
+UI meminta pengguna memverifikasi email lalu masuk. Atur **Site URL** ke halaman
+`/sign-in` pada domain aplikasi dan konfigurasi SMTP di Supabase agar email
+verifikasi dapat diterima pengguna. Jika konfirmasi dinonaktifkan oleh pemilik
+proyek, pendaftaran langsung membuat sesi dan menuju analisis. Aplikasi tidak
+mengubah pengaturan konfirmasi proyek.
+
+### Menyiapkan admin
+
+```bash
+cd Backend
+source .venv/bin/activate
+python -m app.seed_admin
+```
+
+Masukkan password saat diminta. Script membuat akun `admin@bandarpasar.local`,
+mengonfirmasi email admin, serta menetapkan role melalui `app_metadata` yang hanya
+bisa diubah server. Username login: **admin**. Pengulangan script mempertahankan
+password akun yang sudah ada; gunakan `--reset-password` untuk menggantinya.
+`BANDAR_PASAR_ADMIN_PASSWORD` dapat dipakai untuk menjalankan script tanpa prompt.
+Password tidak ditanam di source aplikasi atau di-reset setiap startup.
+
+Profil Admin lama dipakai kembali agar riwayat yang sudah ada tetap tersedia.
+Pengguna baru memakai ID Supabase Auth sebagai ID profil. Role dari `user_metadata`
+tidak dipercaya. Client tidak dapat memilih pemilik percakapan; server menetapkan
+`user_id` dari akun yang diverifikasi untuk setiap permintaan.
+
+## Percakapan Supabase
+
+| Tabel | Data |
+| --- | --- |
+| `users` | Profil akun, tanpa password |
+| `conversations` | Pemilik, judul, waktu dibuat dan diperbarui |
+| `messages` | Teks setiap pesan user dan jawaban AI |
+| `agent_logs` | Konteks, model, sumber web, status/error |
+
+| Endpoint | Perilaku |
+| --- | --- |
+| `GET /conversations?offset=0` | Profil dan riwayat akun aktif, halaman 100 item |
 | `POST /conversations` | Buat percakapan dengan `{ "id": "UUID" }` |
 | `GET /conversations/{id}` | Muat seluruh pesan, sumber, konteks, dan status |
 | `POST /conversations/{id}/messages` | Simpan pertanyaan, jalankan model dengan riwayat DB, simpan jawaban |
@@ -163,9 +202,9 @@ Untuk Supabase baru yang belum memiliki tabel, jalankan
 menyiapkan indeks dan membatasi akses tabel ke backend menggunakan RLS/grants.
 Tidak perlu menjalankannya ulang pada proyek yang saat ini terhubung.
 
-Endpoint aplikasi menggunakan mode admin bersama tanpa autentikasi, sehingga
-pengunjung website dapat mengakses riwayat bersama. Gunakan loopback untuk
-development atau batasi akses deployment sesuai kebutuhan penggunaan bersama.
+Endpoint percakapan, `/chat`, dan `/web/search` memerlukan header
+`Authorization: Bearer <access_token>`. Contoh curl di atas menggunakan
+`ACCESS_TOKEN` dari respons `/auth/sign-in`. Data pasar dan `/health` tetap publik.
 
 ## Struktur
 
