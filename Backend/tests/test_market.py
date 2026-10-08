@@ -320,7 +320,10 @@ def test_custom_sectors_normalizes_response_and_uses_custom_cache_key(monkeypatc
         def get(self, *args, **kwargs):
             return FakeResponse()
 
-    monkeypatch.setattr("app.market.socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 443))])
+    monkeypatch.setattr(
+        "app.market.socket.getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 443))],
+    )
     monkeypatch.setattr("app.market.httpx.Client", FakeClient)
     first = market.sectors("https://example.com/sectors")
     second = market.sectors("https://example.com/sectors")
@@ -341,7 +344,10 @@ def test_custom_sectors_normalizes_response_and_uses_custom_cache_key(monkeypatc
     "source_url,detail",
     [
         ("ftp://example.com", "must start with http:// or https://"),
-        ("http://127.0.0.1/feed", "Private, loopback, and link-local IP addresses are not allowed."),
+        (
+            "http://127.0.0.1/feed",
+            "Private, loopback, and link-local IP addresses are not allowed.",
+        ),
     ],
 )
 def test_sectors_api_rejects_invalid_custom_url(source_url, detail):
@@ -375,7 +381,10 @@ def test_sectors_api_rejects_invalid_custom_payload(monkeypatch):
         def get(self, *args, **kwargs):
             return FakeResponse()
 
-    monkeypatch.setattr("app.market.socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("1.1.1.1", 443))])
+    monkeypatch.setattr(
+        "app.market.socket.getaddrinfo",
+        lambda *args, **kwargs: [(None, None, None, None, ("1.1.1.1", 443))],
+    )
     monkeypatch.setattr("app.market.httpx.Client", FakeClient)
     with TestClient(app) as client:
         response = client.get("/market/sectors", params={"source_url": "https://example.com/api"})

@@ -3562,7 +3562,14 @@ export default function App({ initialUser }) {
   const [aiPanelMode, setAIPanelMode] = useState("normal");
   const [aiWidth, setAiWidth] = useState(310);
   const [indicators, setIndicators] = useState(new Set(["RSI", "MACD"]));
-  const [sectorsApiUrl, setSectorsApiUrl] = useState("");
+  const [sectorsApiUrl, setSectorsApiUrl] = useState(() => {
+    if (typeof window === "undefined") return "";
+    try {
+      return window.localStorage.getItem(SECTORS_API_URL_STORAGE_KEY) || "";
+    } catch {
+      return "";
+    }
+  });
   const [marketTf, setMarketTf] = useState("1D");
   const [technicalTf, setTechnicalTf] = useState("1D");
   const [technicalTicker, setTechnicalTicker] = useState("BBCA");
@@ -3597,14 +3604,6 @@ export default function App({ initialUser }) {
     const handler = () => setMode((m) => (m === "dark" ? "light" : "dark"));
     window.addEventListener("toggleMode", handler);
     return () => window.removeEventListener("toggleMode", handler);
-  }, []);
-  useEffect(() => {
-    try {
-      const stored = window.localStorage.getItem(SECTORS_API_URL_STORAGE_KEY);
-      if (stored) setSectorsApiUrl(stored);
-    } catch {
-      /* Storage is optional. */
-    }
   }, []);
   useEffect(() => {
     try {

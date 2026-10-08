@@ -295,7 +295,9 @@ class MarketData:
         try:
             infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
         except OSError as exc:
-            raise MarketDataValidationError("Could not resolve the custom sectors API host.") from exc
+            raise MarketDataValidationError(
+                "Could not resolve the custom sectors API host."
+            ) from exc
         for info in infos:
             try:
                 ip = ip_address(info[4][0])
@@ -327,7 +329,9 @@ class MarketData:
                 raise MarketDataValidationError(f"Sector row {index} must be an object.")
             ticker = row.get("ticker")
             if not isinstance(ticker, str) or not ticker.strip():
-                raise MarketDataValidationError(f"Sector row {index} must include a non-empty ticker.")
+                raise MarketDataValidationError(
+                    f"Sector row {index} must include a non-empty ticker."
+                )
             item = {"ticker": ticker.strip().upper()}
             if "label" in row and row["label"] is not None:
                 if not isinstance(row["label"], str) or not row["label"].strip():
@@ -573,7 +577,9 @@ class MarketData:
             try:
                 payload = response.json()
             except ValueError as exc:
-                raise MarketDataValidationError("Custom sectors API must return valid JSON.") from exc
+                raise MarketDataValidationError(
+                    "Custom sectors API must return valid JSON."
+                ) from exc
             return {
                 "status": "ok",
                 "fetched_at": datetime.now(UTC).isoformat(),

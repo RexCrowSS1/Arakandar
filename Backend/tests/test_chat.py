@@ -68,7 +68,12 @@ async def test_chat_passes_history_and_context_to_model(application):
     payload["messages"][-1]["content"] = "Data apa yang perlu?"
     application.state.chat_model.generate.assert_called_once_with(
         payload["messages"],
-        {**payload["context"], "timeframe": "1D", "market_data": {"status": "unavailable"}},
+        {
+            **payload["context"],
+            "timeframe": "1D",
+            "sectors_api_url": None,
+            "market_data": {"status": "unavailable"},
+        },
         application.state.web_search.search.return_value,
     )
     application.state.market.evidence.assert_called_once_with("BBCA", "1D", "technical", None)
