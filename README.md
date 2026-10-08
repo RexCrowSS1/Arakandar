@@ -4,7 +4,8 @@ Monorepo aplikasi Bandar Pasar dengan frontend Next.js dan backend FastAPI.
 Frontend Arakan Ndar menyediakan workspace Market/Technical serta panel analyst
 berdasarkan desain Figma, menggunakan data pasar online dengan delay bursa dan model Arakandar lokal
 untuk chat dengan sumber internet. Backend menyediakan endpoint liveness,
-`POST /chat`, `POST /web/search`, serta `/market/overview`, `/market/chart`, dan `/market/news`.
+`POST /chat`, `POST /web/search`, serta `/market/overview`, `/market/sectors`,
+`/market/chart`, dan `/market/news`.
 
 Alur website: **landing (`/`) → sign up (`/sign-up`) atau sign in (`/sign-in`) →
 analisis AI (`/analysis`)**. Supabase Auth menyimpan akun dan password; profil serta
@@ -57,12 +58,24 @@ Gunakan `false` untuk menjalankan data pasar/Supabase tanpa memuat AI. Tunggu sa
 Lihat [konfigurasi Arakandar lokal](./Backend/README.md#model-arakandar-lokal)
 untuk pengaturan perangkat, cache, dan batas data model.
 
+Model AI yang digunakan adalah
+[Timothyemmanuel/Arakandar](https://huggingface.co/Timothyemmanuel/Arakandar).
+
 Pencarian internet aktif secara default melalui Google News RSS tanpa API key.
 Arakandar menerima judul/cuplikannya sebelum menjawab; panel chat menampilkan
 tautan sumber, tanggal terbit, dan status pencarian. **Cari di internet** dapat
 dimatikan per pesan. Grafik mengambil OHLCV Yahoo Finance; IDX tertunda 10 menit.
 Broker summary dan foreign flow memerlukan feed IDX berlisensi. Lihat
 [konfigurasi internet](./Backend/README.md#koneksi-internet-dan-sumber-jawaban).
+
+### Sectors API
+
+Gunakan `GET http://127.0.0.1:8000/market/sectors` untuk mengambil quote sektor
+IDX yang tersedia dari Yahoo Finance. Respons berisi `status`, `fetched_at`,
+`refresh_seconds`, `provider`, dan array `sectors` dengan `ticker`, `label`,
+`price`, `change`, serta `change_percent`. Feed ini bersifat publik dan
+tertunda; respons dapat berstatus `partial`, `stale`, atau `unavailable`.
+Frontend meneruskannya melalui `GET /api/market/sectors`.
 
 File `.env` lokal tidak boleh di-commit. Nilai yang aman untuk development tersedia
 di `.env.example` masing-masing aplikasi.
