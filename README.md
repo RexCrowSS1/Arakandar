@@ -76,6 +76,25 @@ IDX yang tersedia dari Yahoo Finance. Respons berisi `status`, `fetched_at`,
 `price`, `change`, serta `change_percent`. Feed ini bersifat publik dan
 tertunda; respons dapat berstatus `partial`, `stale`, atau `unavailable`.
 Frontend meneruskannya melalui `GET /api/market/sectors`.
+Saat chat dikirim, backend mengambil snapshot endpoint ini sendiri dan
+menyertakannya sebagai `market_data.sectors` untuk Arakandar, bersama dengan
+`market_data.sector_status`. Jadi model dapat membandingkan ticker yang dipilih
+dengan kinerja sektor, tetapi tetap harus menyebutkan jika feed tertunda,
+parsial, atau tidak tersedia.
+
+Pengguna juga dapat memasukkan URL sectors API sendiri pada kolom **Custom
+sectors API URL** di bagian atas workspace Market. URL tersebut disimpan hanya
+di browser pengguna, digunakan untuk memperbarui data sektor, dan dikirim
+sebagai konteks ke Arakandar. API kustom harus mengembalikan JSON dalam salah
+satu bentuk berikut:
+
+```json
+{"sectors": [{"ticker": "IDXFINANCE", "label": "Financials", "change_percent": 1.5}]}
+```
+
+atau langsung berupa array sektor. Field `ticker` wajib ada; `label`, `price`,
+`change`, dan `change_percent` opsional. Tombol **DEFAULT** mengembalikan feed
+Yahoo Finance bawaan. Backend menolak URL non-HTTP(S) dan alamat private/local.
 
 File `.env` lokal tidak boleh di-commit. Nilai yang aman untuk development tersedia
 di `.env.example` masing-masing aplikasi.
