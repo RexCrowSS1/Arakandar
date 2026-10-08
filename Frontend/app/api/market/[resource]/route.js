@@ -3,12 +3,12 @@ export const dynamic = "force-dynamic";
 
 export async function GET(request, { params }) {
   const { resource } = await params;
-  if (!["overview", "chart", "news"].includes(resource)) {
+  if (!["overview", "chart", "news", "sectors"].includes(resource)) {
     return Response.json({ detail: "Market data not found." }, { status: 404 });
   }
   const query = new URLSearchParams();
   const incoming = new URL(request.url).searchParams;
-  for (const key of ["ticker", "timeframe", "mode"]) {
+  for (const key of ["ticker", "timeframe", "mode", "source_url"]) {
     if (incoming.has(key)) query.set(key, incoming.get(key));
   }
   try {

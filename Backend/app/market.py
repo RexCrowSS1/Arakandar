@@ -1,13 +1,15 @@
 """Public market quotes and OHLCV, with explicit exchange delays and stale states."""
 
 import math
+import socket
 from collections import OrderedDict
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime
+from ipaddress import ip_address
 from threading import Lock
 from time import monotonic
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -58,6 +60,10 @@ INTERVALS = {
     "1MTH": ("max", "1mo"),
     "1Y": ("max", "1mo"),
 }
+
+
+class MarketDataValidationError(ValueError):
+    pass
 
 
 def number(value):
@@ -240,6 +246,8 @@ class MarketData:
                 return deepcopy(cached[1])
             try:
                 data = loader()
+            except MarketDataValidationError:
+                raise
             except Exception:
                 if cached and monotonic() - cached[0] < 600:
                     return {
@@ -258,6 +266,86 @@ class MarketData:
                 while len(self.cache) > 256:
                     self.cache.popitem(last=False)
             return data
+
+    def validate_sectors_source_url(self, source_url: str) -> str:
+        source_url = source_url.strip()
+        parsed = urlparse(source_url)
+        if parsed.scheme not in {"http", "https"}:
+            raise MarketDataValidationError(
+                "Custom sectors URL must start with http:// or https://."
+            )
+        if not parsed.netloc or not parsed.hostname:
+            raise MarketDataValidationError("Custom sectors URL must include a valid host.")
+        if parsed.hostname.lower() == "localhost":
+            raise MarketDataValidationError("Local hosts are not allowed for custom sectors URLs.")
+        try:
+            ip = ip_address(parsed.hostname)
+        except ValueError:
+            return source_url
+        if ip.is_private or ip.is_loopback or ip.is_link_local:
+            raise MarketDataValidationError(
+                "Private, loopback, and link-local IP addresses are not allowed."
+            )
+        return source_url
+
+    def verify_public_host(self, source_url: str) -> None:
+        parsed = urlparse(source_url)
+        host = parsed.hostname
+        port = parsed.port or (443 if parsed.scheme == "https" else 80)
+        try:
+            infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
+        except OSError as exc:
+            raise MarketDataValidationError(
+                "Could not resolve the custom sectors API host."
+            ) from exc
+        for info in infos:
+            try:
+                ip = ip_address(info[4][0])
+            except ValueError:
+                continue
+            if ip.is_private or ip.is_loopback or ip.is_link_local:
+                raise MarketDataValidationError(
+                    "Custom sectors API resolves to a private, loopback, or link-local address."
+                )
+
+    def normalize_custom_sectors(self, payload) -> list[dict]:
+        rows = None
+        if isinstance(payload, list):
+            rows = payload
+        elif isinstance(payload, dict):
+            for key in ("sectors", "data"):
+                if isinstance(payload.get(key), list):
+                    rows = payload[key]
+                    break
+        if rows is None:
+            raise MarketDataValidationError(
+                "Custom sectors response must be an array or an object with a sectors/data array."
+            )
+        if len(rows) > 100:
+            rows = rows[:100]
+        sectors = []
+        for index, row in enumerate(rows, start=1):
+            if not isinstance(row, dict):
+                raise MarketDataValidationError(f"Sector row {index} must be an object.")
+            ticker = row.get("ticker")
+            if not isinstance(ticker, str) or not ticker.strip():
+                raise MarketDataValidationError(
+                    f"Sector row {index} must include a non-empty ticker."
+                )
+            item = {"ticker": ticker.strip().upper()}
+            if "label" in row and row["label"] is not None:
+                if not isinstance(row["label"], str) or not row["label"].strip():
+                    raise MarketDataValidationError(f"Sector row {index} has an invalid label.")
+                item["label"] = row["label"].strip()
+            for key in ("price", "change", "change_percent"):
+                if key not in row or row[key] is None:
+                    continue
+                value = number(row[key])
+                if value is None:
+                    raise MarketDataValidationError(f"Sector row {index} has an invalid {key}.")
+                item[key] = value
+            sectors.append(item)
+        return sectors
 
     def fetch_chart(self, ticker: str, period: str, interval: str) -> dict:
         symbol = SYMBOLS[ticker][0]
@@ -439,11 +527,81 @@ class MarketData:
 
         return {"sources": [], **self.cached(("news", ticker), load, ttl=300)}
 
-    def evidence(self, ticker: str, timeframe: str = "1D", workspace: str = "market") -> dict:
+    def sectors(self, source_url: str | None = None) -> dict:
+        if not source_url:
+            def load_default():
+                with ThreadPoolExecutor(max_workers=5) as pool:
+                    quotes = dict(zip(SECTORS, pool.map(self.quote, SECTORS), strict=True))
+                statuses = {quotes[ticker]["status"] for ticker in SECTORS}
+                status = (
+                    "ok"
+                    if statuses == {"ok"}
+                    else "unavailable"
+                    if statuses == {"unavailable"}
+                    else "partial"
+                )
+                return {
+                    "status": status,
+                    "fetched_at": datetime.now(UTC).isoformat(),
+                    "refresh_seconds": self.settings.market_refresh_seconds,
+                    "provider": "Yahoo Finance",
+                    "sectors": [
+                        {
+                            "ticker": ticker,
+                            "label": SYMBOLS[ticker][1],
+                            "price": quotes[ticker].get("price"),
+                            "change": quotes[ticker].get("change"),
+                            "change_percent": quotes[ticker].get("change_percent"),
+                            "status": quotes[ticker].get("status"),
+                        }
+                        for ticker in SECTORS
+                    ],
+                }
+
+            return self.cached(("sectors", "default"), load_default)
+
+        source_url = self.validate_sectors_source_url(source_url)
+
+        def load_custom():
+            self.verify_public_host(source_url)
+            with httpx.Client(
+                timeout=self.settings.market_timeout_seconds, follow_redirects=False
+            ) as client:
+                try:
+                    response = client.get(source_url, headers={"Accept": "application/json"})
+                    response.raise_for_status()
+                except httpx.HTTPError as exc:
+                    raise MarketDataValidationError(
+                        "Could not fetch sectors from the custom API URL."
+                    ) from exc
+            try:
+                payload = response.json()
+            except ValueError as exc:
+                raise MarketDataValidationError(
+                    "Custom sectors API must return valid JSON."
+                ) from exc
+            return {
+                "status": "ok",
+                "fetched_at": datetime.now(UTC).isoformat(),
+                "refresh_seconds": self.settings.market_refresh_seconds,
+                "provider": source_url,
+                "sectors": self.normalize_custom_sectors(payload),
+            }
+
+        return self.cached(("sectors", "custom", source_url), load_custom)
+
+    def evidence(
+        self,
+        ticker: str,
+        timeframe: str = "1D",
+        workspace: str = "market",
+        sectors_api_url: str | None = None,
+    ) -> dict:
         if ticker not in SYMBOLS:
             return {"status": "unavailable", "ticker": ticker}
         allowed = RANGES if workspace == "market" else INTERVALS
         data = self.chart(ticker, timeframe if timeframe in allowed else "1D", workspace)
+        sectors = self.sectors(sectors_api_url)
         return {
             "status": data["status"],
             "quote": data["quote"],
@@ -454,5 +612,7 @@ class MarketData:
                 data.get("interval") in {"1m", "5m", "15m", "30m", "60m", "4h"},
             ),
             "recent_bars": data["bars"][-5:],
+            "sector_status": sectors.get("status"),
+            "sectors": sectors.get("sectors", []),
             "limitations": "Public delayed feed; no broker flow or LightGBM signal.",
         }

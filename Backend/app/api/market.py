@@ -4,7 +4,7 @@ from typing import Literal
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.market import INTERVALS, RANGES, SYMBOLS
+from app.market import INTERVALS, RANGES, SYMBOLS, MarketDataValidationError
 
 router = APIRouter(prefix="/market", tags=["market"])
 
@@ -37,3 +37,11 @@ def chart(
 @router.get("/news")
 def news(request: Request, ticker: str = "IHSG"):
     return request.app.state.market.news(supported(ticker))
+
+
+@router.get("/sectors")
+def sectors(request: Request, source_url: str | None = None):
+    try:
+        return request.app.state.market.sectors(source_url)
+    except MarketDataValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc

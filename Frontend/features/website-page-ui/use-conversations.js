@@ -28,6 +28,7 @@ export function useConversations({
   setTechnicalTf,
   setMarketTf,
   setIndicators,
+  setSectorsApiUrl,
   useWeb,
   setUseWeb,
   openAnalyst,
@@ -74,6 +75,7 @@ export function useConversations({
         } else {
           setMarketTf?.(detail.context.timeframe || "1D");
         }
+        setSectorsApiUrl?.(detail.context.sectors_api_url || "");
         setUseWeb(detail.use_web);
         setDraft("");
       }
@@ -87,6 +89,7 @@ export function useConversations({
       setTechnicalTf,
       setMarketTf,
       setIndicators,
+      setSectorsApiUrl,
     ],
   );
 

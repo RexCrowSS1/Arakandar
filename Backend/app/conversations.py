@@ -10,7 +10,12 @@ from app.supabase import get_supabase_client
 
 ADMIN_ID = str(uuid5(NAMESPACE_URL, "bandar-pasar/shared-admin"))
 ADMIN_EMAIL = "admin@bandarpasar.local"
-DEFAULT_CONTEXT = {"workspace": "market", "ticker": "IHSG", "indicators": []}
+DEFAULT_CONTEXT = {
+    "workspace": "market",
+    "ticker": "IHSG",
+    "indicators": [],
+    "sectors_api_url": None,
+}
 
 
 class StorageUnavailableError(Exception):
