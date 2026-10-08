@@ -43,6 +43,7 @@ async function mountMarket(t) {
         return null;
       },
       setItem() {},
+      removeItem() {},
     },
   });
   globalThis.document = Object.assign(new EventTarget(), { hidden: false });
@@ -69,7 +70,12 @@ async function mountMarket(t) {
   const detail = {
     conversation: { id: "saved", title: "New Conversation" },
     user,
-    context: { workspace: "market", ticker: "IHSG", indicators: [] },
+    context: {
+      workspace: "market",
+      ticker: "IHSG",
+      indicators: [],
+      sectors_api_url: null,
+    },
     messages: [],
     processing: false,
     use_web: true,
@@ -86,6 +92,8 @@ async function mountMarket(t) {
       });
     if (url.pathname === "/api/market/news")
       return Response.json({ status: "empty", sources: [] });
+    if (url.pathname === "/api/market/sectors")
+      return Response.json({ status: "ok", sectors: [] });
     if (url.pathname === "/api/market/chart") {
       const step =
         INTERVAL_MS[url.searchParams.get("timeframe")] || INTERVAL_MS["1D"];
@@ -203,6 +211,7 @@ test("website controls select actual chart resources and send the same technical
     ticker: "BBRI",
     timeframe: "15M",
     indicators: ["RSI", "MACD", "MA"],
+    sectors_api_url: null,
   });
   const tree = JSON.stringify(root.toJSON());
   assert.match(tree, /1,234.56/);

@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
 from app.ai import ModelBusyError, ModelUnavailableError, PromptTooLongError
+from app.market import MarketDataValidationError
 from app.web import WebSearchResult
 
 logger = logging.getLogger(__name__)
@@ -30,6 +31,7 @@ class ChatContext(BaseModel):
     indicators: list[
         Literal["MA", "EMA", "RSI", "MACD", "BOLLINGER", "VOLUME", "STOCHASTIC", "VWAP"]
     ] = Field(default_factory=list, max_length=8)
+    sectors_api_url: str | None = None
 
 
 class ChatRequest(BaseModel):
@@ -70,7 +72,10 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
             else WebSearchResult(status="disabled")
         )
         market = request.app.state.market.evidence(
-            payload.context.ticker, payload.context.timeframe, payload.context.workspace
+            payload.context.ticker,
+            payload.context.timeframe,
+            payload.context.workspace,
+            payload.context.sectors_api_url,
         )
         reply = service.generate(
             [message.model_dump() for message in payload.messages],
@@ -85,6 +90,8 @@ def chat(payload: ChatRequest, request: Request) -> ChatResponse:
         raise HTTPException(429, "The model is busy. Please try again shortly.") from exc
     except PromptTooLongError as exc:
         raise HTTPException(422, "The message is too long. Please shorten your question.") from exc
+    except MarketDataValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
     except Exception as exc:
         logger.exception("Local model inference failed")
         raise HTTPException(503, "The model could not respond. Please try again.") from exc

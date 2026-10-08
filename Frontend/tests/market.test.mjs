@@ -170,6 +170,18 @@ test("market proxy validates resource and forwards selection without caching", a
   assert.equal(target.searchParams.get("timeframe"), "15M");
   assert.equal(target.searchParams.get("url"), null);
   assert.equal(response.headers.get("Cache-Control"), "no-store");
+  const sectors = await GET(
+    new Request(
+      "http://local/api/market/sectors?source_url=https%3A%2F%2Fexample.com%2Fsectors",
+    ),
+    { params: Promise.resolve({ resource: "sectors" }) },
+  );
+  assert.equal(sectors.status, 200);
+  assert.equal(target.pathname, "/market/sectors");
+  assert.equal(
+    target.searchParams.get("source_url"),
+    "https://example.com/sectors",
+  );
   assert.equal(
     (
       await GET(new Request("http://local/api/market/private"), {

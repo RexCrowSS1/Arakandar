@@ -264,3 +264,120 @@ def test_year_timeframe_uses_monthly_source_and_exposes_year_interval():
     assert response.json()["interval"] == "1y"
     assert len(response.json()["bars"]) == 1
     assert app.state.market.fetch_chart.call_args_list[0].args == ("BBCA", "max", "1mo")
+
+
+def test_default_sectors_returns_builtin_feed():
+    market = service()
+    market.quote = lambda ticker: {
+        "ticker": ticker,
+        "status": "ok",
+        "price": 100,
+        "change": 2,
+        "change_percent": 2,
+    }
+    data = market.sectors()
+    assert data["status"] == "ok"
+    assert data["provider"] == "Yahoo Finance"
+    assert [row["ticker"] for row in data["sectors"]] == [
+        "IDXFINANCE",
+        "IDXENERGY",
+        "IDXNONCYC",
+        "IDXHEALTH",
+        "IDXTECHNO",
+    ]
+
+
+def test_custom_sectors_normalizes_response_and_uses_custom_cache_key(monkeypatch):
+    market = service()
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": [
+                    {
+                        "ticker": "idxtechno",
+                        "label": "Technology",
+                        "price": 123.4,
+                        "change": 1.2,
+                        "change_percent": 0.99,
+                    }
+                ]
+            }
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.market.socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("8.8.8.8", 443))])
+    monkeypatch.setattr("app.market.httpx.Client", FakeClient)
+    first = market.sectors("https://example.com/sectors")
+    second = market.sectors("https://example.com/sectors")
+    assert first == second
+    assert first["provider"] == "https://example.com/sectors"
+    assert first["sectors"] == [
+        {
+            "ticker": "IDXTECHNO",
+            "label": "Technology",
+            "price": 123.4,
+            "change": 1.2,
+            "change_percent": 0.99,
+        }
+    ]
+
+
+@pytest.mark.parametrize(
+    "source_url,detail",
+    [
+        ("ftp://example.com", "must start with http:// or https://"),
+        ("http://127.0.0.1/feed", "Private, loopback, and link-local IP addresses are not allowed."),
+    ],
+)
+def test_sectors_api_rejects_invalid_custom_url(source_url, detail):
+    app = create_app(Settings(ai_enabled=False))
+    with TestClient(app) as client:
+        response = client.get("/market/sectors", params={"source_url": source_url})
+    assert response.status_code == 422
+    assert detail in response.json()["detail"]
+
+
+def test_sectors_api_rejects_invalid_custom_payload(monkeypatch):
+    app = create_app(Settings(ai_enabled=False))
+
+    class FakeResponse:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return [{"label": "No ticker"}]
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.kwargs = kwargs
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, *args, **kwargs):
+            return FakeResponse()
+
+    monkeypatch.setattr("app.market.socket.getaddrinfo", lambda *args, **kwargs: [(None, None, None, None, ("1.1.1.1", 443))])
+    monkeypatch.setattr("app.market.httpx.Client", FakeClient)
+    with TestClient(app) as client:
+        response = client.get("/market/sectors", params={"source_url": "https://example.com/api"})
+    assert response.status_code == 422
+    assert "must include a non-empty ticker" in response.json()["detail"]

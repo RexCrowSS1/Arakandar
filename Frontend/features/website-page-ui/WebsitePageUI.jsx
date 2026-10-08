@@ -43,6 +43,7 @@ import {
 } from "./market-data.mjs";
 const GROTESK = "var(--font-barlow-condensed), sans-serif";
 const MONO = "var(--font-jetbrains), monospace";
+const SECTORS_API_URL_STORAGE_KEY = "bandar-pasar.sectors-api-url";
 // ─── THEME ────────────────────────────────────────────────────────────────────
 const THEME = {
   dark: {
@@ -1636,13 +1637,21 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
     setMarketTf: setTf,
     chart,
     overview,
+    sectors,
     news,
+    sectorsApiUrl,
+    setSectorsApiUrl,
   } = useApp();
   const quote = chart.quote || {};
   const breadth = overview.breadth || {};
-  const SECTORS = SECTOR_CATALOG.map((sector) => ({
-    ...sector,
-    pct: overview.quotes?.[sector.ticker]?.change_percent,
+  const sectorRows =
+    sectors.sectors?.length > 0
+      ? sectors.sectors
+      : SECTOR_CATALOG.map((sector) => ({ ticker: sector.ticker, label: sector.label }));
+  const SECTORS = sectorRows.map((sector) => ({
+    ticker: sector.ticker,
+    label: sector.label || sector.ticker,
+    pct: sector.change_percent,
   }));
   const TOP_GAINERS = overview.gainers || [];
   const TOP_LOSERS = overview.losers || [];
@@ -1714,6 +1723,46 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
             }}
           >
             [ MANUAL ANALYSIS ]
+          </button>
+        </div>
+        <div className="flex items-center gap-2 mb-4">
+          <input
+            aria-label="Custom sectors API URL (optional)"
+            placeholder="Custom sectors API URL (optional)"
+            value={sectorsApiUrl}
+            onChange={(event) => setSectorsApiUrl(event.target.value)}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              fontFamily: MONO,
+              fontSize: "10px",
+              color: t.text,
+              backgroundColor: t.surface,
+              borderTop: `1px solid ${t.border}`,
+              borderRight: `1px solid ${t.border}`,
+              borderBottom: `1px solid ${t.border}`,
+              borderLeft: `1px solid ${t.border}`,
+              padding: "5px 8px",
+            }}
+          />
+          <button
+            type="button"
+            onClick={() => setSectorsApiUrl("")}
+            style={{
+              fontFamily: MONO,
+              fontSize: "9px",
+              letterSpacing: "0.06em",
+              padding: "5px 10px",
+              cursor: "pointer",
+              color: t.orange,
+              backgroundColor: "transparent",
+              borderTop: `1px solid ${t.orange}`,
+              borderRight: `1px solid ${t.orange}`,
+              borderBottom: `1px solid ${t.orange}`,
+              borderLeft: `1px solid ${t.orange}`,
+            }}
+          >
+            DEFAULT
           </button>
         </div>
 
@@ -1995,7 +2044,7 @@ function MarketWorkspace({ onManualAnalysis, setAiQ }) {
         >
           {/* Sectors */}
           <DataSection
-            title={`SECTOR PERFORMANCE${overview.status === "stale" ? " · STALE" : overview.status === "partial" ? " · PARTIAL" : overview.status === "unavailable" ? " · OFFLINE" : ""}`}
+            title={`SECTOR PERFORMANCE${sectors.status === "stale" ? " · STALE" : sectors.status === "partial" ? " · PARTIAL" : sectors.status === "unavailable" ? " · OFFLINE" : ""}`}
             style={{ borderRight: `1px solid ${t.border}` }}
           >
             {SECTORS.map((s) => (
@@ -3513,6 +3562,7 @@ export default function App({ initialUser }) {
   const [aiPanelMode, setAIPanelMode] = useState("normal");
   const [aiWidth, setAiWidth] = useState(310);
   const [indicators, setIndicators] = useState(new Set(["RSI", "MACD"]));
+  const [sectorsApiUrl, setSectorsApiUrl] = useState("");
   const [marketTf, setMarketTf] = useState("1D");
   const [technicalTf, setTechnicalTf] = useState("1D");
   const [technicalTicker, setTechnicalTicker] = useState("BBCA");
@@ -3520,6 +3570,12 @@ export default function App({ initialUser }) {
     workspace === "technical" ? technicalTicker : activeTicker;
   const selectedTf = workspace === "technical" ? technicalTf : marketTf;
   const overview = useMarketResource("/api/market/overview");
+  const sectorsSourceUrl = sectorsApiUrl.trim();
+  const sectors = useMarketResource(
+    sectorsSourceUrl
+      ? `/api/market/sectors?${new URLSearchParams({ source_url: sectorsSourceUrl })}`
+      : "/api/market/sectors",
+  );
   const chart = useMarketResource(
     `/api/market/chart?${new URLSearchParams({ ticker: selectedTicker, timeframe: selectedTf, mode: workspace })}`,
   );
@@ -3542,6 +3598,28 @@ export default function App({ initialUser }) {
     window.addEventListener("toggleMode", handler);
     return () => window.removeEventListener("toggleMode", handler);
   }, []);
+  useEffect(() => {
+    try {
+      const stored = window.localStorage.getItem(SECTORS_API_URL_STORAGE_KEY);
+      if (stored) setSectorsApiUrl(stored);
+    } catch {
+      /* Storage is optional. */
+    }
+  }, []);
+  useEffect(() => {
+    try {
+      if (sectorsApiUrl.trim()) {
+        window.localStorage.setItem(
+          SECTORS_API_URL_STORAGE_KEY,
+          sectorsApiUrl.trim(),
+        );
+      } else {
+        window.localStorage.removeItem(SECTORS_API_URL_STORAGE_KEY);
+      }
+    } catch {
+      /* Storage is optional. */
+    }
+  }, [sectorsApiUrl]);
   const openAnalyst = () => {
     setAIPanelMode("normal");
     setMobilePanel("analyst");
@@ -3565,6 +3643,7 @@ export default function App({ initialUser }) {
       ticker: selectedTicker,
       timeframe: selectedTf,
       indicators: workspace === "technical" ? [...indicators] : [],
+      sectors_api_url: sectorsSourceUrl || null,
     },
     setWorkspace,
     setActiveTicker,
@@ -3572,6 +3651,7 @@ export default function App({ initialUser }) {
     setTechnicalTf,
     setMarketTf,
     setIndicators,
+    setSectorsApiUrl,
     useWeb,
     setUseWeb,
     openAnalyst,
@@ -3612,6 +3692,7 @@ export default function App({ initialUser }) {
   };
   const appState = {
     overview,
+    sectors,
     chart,
     news,
     series,
@@ -3632,6 +3713,8 @@ export default function App({ initialUser }) {
     setAiInput,
     setActiveTicker,
     setWorkspace,
+    sectorsApiUrl,
+    setSectorsApiUrl,
   };
   // Minimized AI floating button
   const AiFloatBtn = () => (

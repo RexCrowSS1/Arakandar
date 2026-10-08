@@ -71,6 +71,7 @@ async def test_chat_passes_history_and_context_to_model(application):
         {**payload["context"], "timeframe": "1D", "market_data": {"status": "unavailable"}},
         application.state.web_search.search.return_value,
     )
+    application.state.market.evidence.assert_called_once_with("BBCA", "1D", "technical", None)
     application.state.web_search.search.assert_called_once_with("Data apa yang perlu?", "BBCA")
 
 
@@ -196,6 +197,8 @@ def test_system_prompt_marks_snapshots_and_missing_signal():
     result = build_messages(messages, {"ticker": "IHSG"})
     assert result[0]["role"] == "system"
     assert "NOT live market data" in result[0]["content"]
+    assert "sector performance" in result[0]["content"]
+    assert "Never invent missing sector values." in result[0]["content"]
     assert "No deterministic LightGBM" in result[0]["content"]
     assert result[1:] == messages
 
